@@ -62,11 +62,13 @@ def inverse (a : Fp12) : Fp12 :=
 @[inline] def conjugate (a : Fp12) : Fp12 := ⟨a.c0, -a.c1⟩
 
 /-- Square-and-multiply modular exponentiation. -/
-partial def powNat (base : Fp12) (e : Nat) : Fp12 :=
+def powNat (base : Fp12) (e : Nat) : Fp12 :=
   if e = 0 then one
   else
     let half := powNat (base * base) (e / 2)
     if e % 2 = 1 then base * half else half
+termination_by e
+decreasing_by omega
 
 end Fp12
 

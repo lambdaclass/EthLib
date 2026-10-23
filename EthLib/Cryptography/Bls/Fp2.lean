@@ -61,11 +61,13 @@ def inverse (a : Fp2) : Fp2 :=
 instance : Div Fp2 := ⟨fun a b => a * b.inverse⟩
 
 /-- Square-and-multiply by a `Nat`. -/
-partial def powNat (base : Fp2) (e : Nat) : Fp2 :=
+def powNat (base : Fp2) (e : Nat) : Fp2 :=
   if e = 0 then one
   else
     let half := powNat (base * base) (e / 2)
     if e % 2 = 1 then base * half else half
+termination_by e
+decreasing_by omega
 
 end Fp2
 
