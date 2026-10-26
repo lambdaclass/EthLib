@@ -41,3 +41,15 @@ lean_lib «Proofs» where
 /-- Benchmarks of the spec's BLS on test vectors produced by blst. -/
 lean_exe blsbench where
   root := `Bench
+
+/-- An optimized BLS12-381 implementation of the spec. Imports only the
+spec's error type, SHA-256 and scalar field, never Mathlib. -/
+@[default_target]
+lean_lib «EthLibImpl» where
+  roots := #[`EthLibImpl]
+  moreLeancArgs := #["-O3"]
+
+/-- Differential tests and benchmarks: `EthLibImpl` against `EthLib`. -/
+lean_exe implbench where
+  root := `ImplBench
+  moreLeancArgs := #["-O3"]
