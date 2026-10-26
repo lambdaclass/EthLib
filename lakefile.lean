@@ -35,3 +35,9 @@ this library rather than to `EthLib`. -/
 lean_lib «Proofs» where
   roots := #[`EthLib.Proofs, `EthLib.Cryptography.Proofs]
   precompileModules := false
+
+/-! ## Local additions (not for upstream) -/
+
+/-- Benchmarks of the spec's BLS on test vectors produced by blst. -/
+lean_exe blsbench where
+  root := `Bench
