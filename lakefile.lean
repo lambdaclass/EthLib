@@ -53,3 +53,8 @@ lean_lib «EthLibImpl» where
 lean_exe implbench where
   root := `ImplBench
   moreLeancArgs := #["-O3"]
+
+/-- Proofs that `EthLibImpl` computes the spec's results. -/
+lean_lib «ImplProofs» where
+  roots := #[`EthLibImpl.Cryptography.Proofs]
+  precompileModules := false
