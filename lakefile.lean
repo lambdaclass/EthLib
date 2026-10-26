@@ -138,3 +138,9 @@ Not a default target: `scripts/test_check_accessors.sh` builds and checks it. -/
 lean_lib «CheckAccessorsTest» where
   srcDir := "scripts"
   roots := #[`CheckAccessorsTest]
+
+/-! ## Local additions (not for upstream) -/
+
+/-- Benchmarks of the spec's BLS on test vectors produced by blst. -/
+lean_exe blsbench where
+  root := `Bench
