@@ -64,7 +64,7 @@ def s125 : Fp := Fp.ofNat
   0x810e5a23cbb86fd12ded1af502287a397ed25c1d6fe0444e38c48e9c7ddb3c27cfebdd464e90f201fda0eb6983f2533
 
 /-- The spec's `panic!` (never reached). -/
-def swuPanic : Fp2 × Fp2 := panic! "neither gx1 nor gx2 is a square"
+def swuPanic (_ : Unit) : Fp2 × Fp2 := panic! "neither gx1 nor gx2 is a square"
 
 def simpleSwuSlow (u zu2 x1 gx1 : Fp2) : Fp2 × Fp2 :=
   match Fp2.sqrtAlt gx1 with
@@ -78,7 +78,7 @@ def simpleSwuSlow (u zu2 x1 gx1 : Fp2) : Fp2 × Fp2 :=
     | .ok y =>
       let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
       (x2, y)
-    | .error _ => swuPanic
+    | .error _ => swuPanic ()
 
 def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
   let x1 :=
