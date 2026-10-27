@@ -7,24 +7,24 @@ import EthLib.Cryptography.Bls.HashToCurve
 `BLS12381G2_XMD:SHA-256_SSWU_RO_` (RFC 9380), the spec's pipeline step for
 step on the fast field: `expand_message_xmd` (reused from the spec, it is
 byte-level SHA-256 work), `hash_to_field`, SSWU, the 3-isogeny, and the
-Budroni–Pintore cofactor clearing. Every intermediate point is the spec's
-triple.
+Budroni–Pintore cofactor clearing.
 
 Algorithmic differences, none of which changes a value:
 
 * The square root inside SSWU: `Fp2.sqrt` may return the other root, and
   SSWU then fixes the sign with `sgn0`, which gives the spec's `y` either
   way.
-* Independent inversions are batched (Montgomery's trick): the two SSWU
-  denominators, the four isogeny denominators, and the two `z`s that `ψ`
-  and `ψ²` normalize. Nine inversions become three. Inverses are unique,
-  and zero inputs get the spec's `inverse 0 = 0`.
+* The two SSWU denominators share one inversion (Montgomery's trick; inverses
+  are unique, and a zero input gets the spec's `inverse 0 = 0`). The isogeny
+  and `ψ`/`ψ²` do not normalize: `isoMapJac` returns a Jacobian triple with
+  `Z = xDen·yDen`, and `psiJac`/`psi2Jac` conjugate or scale the triple.
+  Nine inversions become one, and the output is the spec's point up to a
+  Jacobian scaling `(x, y, z) ↦ (l²x, l³y, lz)`, not the spec's triple.
 * `hash_to_field` reduces each 64-byte chunk with two Montgomery
   multiplications instead of big-number arithmetic, and `mulNegX` keeps
   its 64-bit scalar in a machine word.
 
-Each function the spec has is defined here too, with the spec's shape; the
-batched pipeline uses the `…With` forms, which take the inverses.
+`simpleSwuWith` takes the denominator's inverse, so the pipeline shares one inversion.
 -/
 
 namespace EthLibImpl.Cryptography.Bls.HashToCurve
@@ -151,14 +151,17 @@ def isoParts (xp : Fp2) : Fp2 × Fp2 × Fp2 × Fp2 :=
   let yDen := xp3 + k42 * xp2 + k41 * xp + k40
   (xNum, xDen, yNum, yDen)
 
-/-- Spec `isoMapG2`, given the inverses of `xDen` and `yDen`. -/
-def isoMapWith (yp xNum yNum xDenInv yDenInv : Fp2) : Fp2 × Fp2 :=
-  (xNum * xDenInv, yp * yNum * yDenInv)
-
-/-- Spec `isoMapG2`. -/
-def isoMapG2 (xp yp : Fp2) : Fp2 × Fp2 :=
+/-- Spec `isoMapG2` as a Jacobian triple with `Z = xDen·yDen`:
+`(xNum·xDen·yDen², yp·yNum·xDen³·yDen², xDen·yDen)`. If a denominator is
+zero, the spec's affine formula (its `inverse 0 = 0`). -/
+def isoMapJac (xp yp : Fp2) : G2 :=
   let (xNum, xDen, yNum, yDen) := isoParts xp
-  isoMapWith yp xNum yNum xDen.inverse yDen.inverse
+  if xDen.isZero || yDen.isZero then
+    ⟨xNum * xDen.inverse, yp * yNum * yDen.inverse, Fp2.one⟩
+  else
+    let z := xDen * yDen
+    let zy := z * yDen
+    ⟨xNum * zy, yp * yNum * (zy * xDen.sqr), z⟩
 
 /-! ## Cofactor clearing (RFC 9380 Appendix G.3) -/
 
@@ -169,39 +172,20 @@ def c2Psi : Fp2 := (Fp2.powNat (Fp2.mk Fp.one Fp.one) ((Fp.modulus - 1) / 2)).in
 /-- `1 / 2^((p − 1) / 3)`, lifted into `Fp2`. -/
 def c1Psi2 : Fp2 := Fp2.mk (Fp.powNat (Fp.ofNat 2) ((Fp.modulus - 1) / 3)).inverse Fp.zero
 
-/-- Spec `G2.toAffine` of a point with `z ≠ 0`, given `z`'s inverse. -/
-def toAffineWith (P : G2) (zinv : Fp2) : Fp2 × Fp2 :=
-  let zinv2 := zinv.sqr
-  (P.x * zinv2, P.y * (zinv2 * zinv))
-
-/-- Spec `psi`, given the inverse of `P.z`. -/
-def psiWith (P : G2) (zinv : Fp2) : G2 :=
-  if P.z.isZero then P else
-    let (x, y) := toAffineWith P zinv
-    ⟨c1Psi * x.conj, c2Psi * y.conj, Fp2.one⟩
-
-/-- Spec `psi2`, given the inverse of `P.z`. -/
-def psi2With (P : G2) (zinv : Fp2) : G2 :=
-  if P.z.isZero then P else
-    let (x, y) := toAffineWith P zinv
-    ⟨c1Psi2 * x, -y, Fp2.one⟩
-
-/-- Spec `psi`. -/
-def psi (P : G2) : G2 := psiWith P P.z.inverse
-
-/-- Spec `psi2`. -/
-def psi2 (P : G2) : G2 := psi2With P P.z.inverse
-
 /-- Multiply by the negative BLS parameter, with the spec's recursion. -/
 def mulNegX (P : G2) : G2 := G2.neg (G2.mulNatW P G2.absXWord)
 
-/-- Spec `clearCofactor`; `ψ(P)` and `ψ²(2P)` share one inversion. -/
-def clearCofactor (P : G2) : G2 :=
+/-- `ψ` without normalizing: the spec's `psi P` scaled by `conj(P.z)`. -/
+def psiJac (P : G2) : G2 := ⟨c1Psi * P.x.conj, c2Psi * P.y.conj, P.z.conj⟩
+
+/-- `ψ²` without normalizing: the spec's `psi2 P` scaled by `P.z`. -/
+def psi2Jac (P : G2) : G2 := ⟨c1Psi2 * P.x, -P.y, P.z⟩
+
+/-- Spec `clearCofactor` with `psiJac`/`psi2Jac`: no inversion. -/
+def clearCofactorJac (P : G2) : G2 :=
   let t1 := mulNegX P
-  let P2 := G2.double P
-  let (zi, zi2) := Fp2.batchInverse2 P.z P2.z
-  let t2 := psiWith P zi
-  let t3 := psi2With P2 zi2
+  let t2 := psiJac P
+  let t3 := psi2Jac (G2.double P)
   let t3 := G2.add t3 (G2.neg t2)
   let t2 := G2.add t1 t2
   let t2 := mulNegX t2
@@ -209,7 +193,8 @@ def clearCofactor (P : G2) : G2 :=
   let t3 := G2.add t3 (G2.neg t1)
   G2.add t3 (G2.neg P)
 
-/-- Spec `hashToG2`, with the SSWU and isogeny inversions batched. -/
+/-- Spec `hashToG2`, with the SSWU inversions batched; the isogeny and `ψ` stay Jacobian, so the
+result is the spec's point scaled by some `l`: `(x, y, z) ↦ (l²x, l³y, lz)`. -/
 def hashToG2 (msg : ByteArray) (dst : ByteArray) : Except BlsError G2 := do
   let us ← hashToFieldFp2 msg dst 2
   let u0 := us[0]!
@@ -219,13 +204,6 @@ def hashToG2 (msg : ByteArray) (dst : ByteArray) : Except BlsError G2 := do
   let (di0, di1) := Fp2.batchInverse2 den0 den1
   let (x0, y0) := simpleSwuWith u0 zu0 den0 di0
   let (x1, y1) := simpleSwuWith u1 zu1 den1 di1
-  let (xn0, xd0, yn0, yd0) := isoParts x0
-  let (xn1, xd1, yn1, yd1) := isoParts x1
-  let (xi0, yi0, xi1, yi1) := Fp2.batchInverse4 xd0 yd0 xd1 yd1
-  let (xa, ya) := isoMapWith y0 xn0 yn0 xi0 yi0
-  let (xb, yb) := isoMapWith y1 xn1 yn1 xi1 yi1
-  let p0 : G2 := ⟨xa, ya, Fp2.one⟩
-  let p1 : G2 := ⟨xb, yb, Fp2.one⟩
-  return clearCofactor (G2.add p0 p1)
+  return clearCofactorJac (G2.add (isoMapJac x0 y0) (isoMapJac x1 y1))
 
 end EthLibImpl.Cryptography.Bls.HashToCurve

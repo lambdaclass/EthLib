@@ -77,6 +77,11 @@ def hSG1 (p : SG1) : String := s!"({hS p.x}, {hS p.y}, {hS p.z})"
 def hIG2 (p : IG2) : String := s!"({hI2 p.x}, {hI2 p.y}, {hI2 p.z})"
 def hSG2 (p : SG2) : String := s!"({hS2 p.x}, {hS2 p.y}, {hS2 p.z})"
 
+/-- A `G2` point as what the spec's pairing reads: `isInfinity` and `toAffine`. -/
+def hSG2Point (p : SG2) : String :=
+  let (x, y) := p.toAffine
+  s!"inf={p.isInfinity} affine=({hS2 x}, {hS2 y})"
+
 def exStr {α : Type} (f : α → String) : Except BlsError α → String
   | .ok a => s!"ok {f a}"
   | .error e => s!"err {e.message}"
@@ -728,9 +733,9 @@ def hashTarget (c : Ctx) (g : Rng) : IO Unit := do
       pure (g.bytes dl)
   let inp := fun _ => s!"msg={hexBytes msg} dst={hexBytes dst}"
   c.note (EthLibImpl.Cryptography.Bls.HashToCurve.hashToG2 msg dst).isOk
-  c.str "hashToG2" inp
-    (exStr hIG2 (EthLibImpl.Cryptography.Bls.HashToCurve.hashToG2 msg dst))
-    (exStr hSG2 (EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst))
+  c.str "hashToG2 (same point: isInfinity and toAffine)" inp
+    (exStr (fun p => hSG2Point (toSG2 p)) (EthLibImpl.Cryptography.Bls.HashToCurve.hashToG2 msg dst))
+    (exStr hSG2Point (EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst))
 
 /-! ### pairing -/
 

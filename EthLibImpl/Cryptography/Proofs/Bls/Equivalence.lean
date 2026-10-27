@@ -3,6 +3,7 @@ import EthLib.Cryptography.Bls.Exports
 import EthLibImpl.Cryptography.Proofs.Bls.SigImpl
 import EthLibImpl.Cryptography.Proofs.Bls.CompressG2
 import EthLibImpl.Cryptography.Proofs.Bls.HashImpl
+import EthLibImpl.Cryptography.Proofs.Bls.HashMath
 import EthLibImpl.Cryptography.Proofs.Bls.PairingImpl
 import EthLibImpl.Cryptography.Proofs.Bls.MillerLoop
 
@@ -88,7 +89,7 @@ theorem ethFastAggregateVerify_eq_ethlib (pks : Array ByteArray) (msg sig : Byte
     ethFastAggregateVerify pks msg sig
       = EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig :=
   ethFastAggregateVerify_eq_spec coreVerifyHyp Mirror.pairingCheck_eq
-    Mirror.HashToCurve.hashToG2_eq pks msg sig
+    Mirror.HashToCurve.hashToG2_rel pks msg sig
 
 /-- **`eth_aggregate_pubkeys`.** The implementation returns EthLib's result
 on every input, errors included. -/

@@ -1,6 +1,7 @@
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorSig
 import EthLibImpl.Cryptography.Proofs.Bls.G2Subgroup
 import EthLibImpl.Cryptography.Proofs.Bls.G1Endo
+import EthLibImpl.Cryptography.Proofs.Bls.G2Proj
 import EthLib.Cryptography.Proofs.Bls.Compress
 import EthLib.Cryptography.Proofs.Bls.G1Group
 
@@ -397,6 +398,15 @@ theorem keyValidate_inf {b : ByteArray} {q : G1} (hq : G1.uncompress b = .ok q)
   simp only [G1.keyValidate, hq, ok_bind, hqi]
   rfl
 
+/-- The hash-to-curve hypothesis: the mirror's `hashToG2` and the spec's fail with the same
+error, or return triples for the same point (`G2.ProjEq`, equal up to Jacobian scaling).
+`Mirror.HashToCurve.hashToG2_rel` proves it. -/
+def HashRel (msg dst : ByteArray) : Prop :=
+  (∃ e, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst = .error e ∧
+      Mirror.HashToCurve.hashToG2 msg dst = .error e) ∨
+    ∃ P Q, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst = .ok P ∧
+      Mirror.HashToCurve.hashToG2 msg dst = .ok Q ∧ G2.ProjEq P Q
+
 /-- The spec verifies the compressed aggregate key, which it decodes into
 another triple for the same group element; the mirror verifies the
 aggregate point itself. They agree on a valid point of the `r`-torsion
@@ -404,8 +414,7 @@ subgroup. -/
 theorem coreVerify_compress {agg : G1} (hv : G1.Valid agg)
     (hsub : Fr.modulus • G1.toPoint agg = 0)
     (hpair : ∀ pairs, Mirror.pairingCheck pairs = EthLib.Cryptography.Bls.pairingCheck pairs)
-    (hhash : ∀ msg dst, Mirror.HashToCurve.hashToG2 msg dst
-      = EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst)
+    (hhash : ∀ msg dst, HashRel msg dst)
     (msg sig : ByteArray) :
     coreVerify (G1.compress agg) msg sig = coreVerifyPoint agg msg sig := by
   by_cases hinf : agg.isInfinity = true
@@ -435,19 +444,19 @@ theorem coreVerify_compress {agg : G1} (hv : G1.Valid agg)
       | error e => rfl
       | ok s =>
         simp only [signatureSubgroupCheck,
-          ← Mirror.G2.inSubgroup_eq (G2.valid_of_uncompress hs), hhash]
+          ← Mirror.G2.inSubgroup_eq (G2.valid_of_uncompress hs)]
         by_cases hsg : Mirror.G2.inSubgroup s = true
         · simp only [hsg, Bool.not_true, Bool.false_eq_true, if_false]
-          cases hh : EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg
-              EthLib.Cryptography.Bls.Signatures.DST with
-          | error e => rfl
-          | ok h =>
-            simp only [hpair]
+          rcases hhash msg EthLib.Cryptography.Bls.Signatures.DST with
+            ⟨e, hs', hm⟩ | ⟨h, Q', hs', hm, hp⟩
+          · simp only [hs', hm]
+          · simp only [hs', hm, hpair]
             have hneg : G1.toPoint (G1.neg q) = G1.toPoint (G1.neg agg) := by
               rw [G1.toPoint_neg hqv, G1.toPoint_neg hv, hqp]
             obtain ⟨hi, ha⟩ :=
               G1.toAffine_eq_of_toPoint_eq (G1.valid_neg hqv) (G1.valid_neg hv) hneg
-            exact pairingCheck_congr_two _ h hi (Embedded.ofG1_congr hi ha)
+            exact (pairingCheck_congr_two _ h hi (Embedded.ofG1_congr hi ha)).trans
+              (pairingCheck_congr_two_g2 _ _ hp)
         · simp only [hsg, Bool.not_false, if_true]
 
 /-! ## 5. The aggregation loops
@@ -620,8 +629,7 @@ theorem stepM_good (pk : ByteArray) (r : MProd (Option Bool) G1) (hr : Good r.sn
 returns the spec's answer, given the pairing and hash-to-curve layers. -/
 theorem fastAggregateVerify_eq
     (hpair : ∀ pairs, Mirror.pairingCheck pairs = EthLib.Cryptography.Bls.pairingCheck pairs)
-    (hhash : ∀ msg dst, Mirror.HashToCurve.hashToG2 msg dst
-      = EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst)
+    (hhash : ∀ msg dst, HashRel msg dst)
     (pks : Array ByteArray) (msg sig : ByteArray) :
     fastAggregateVerify pks msg sig
       = EthLib.Cryptography.Bls.Signatures.fastAggregateVerify pks msg sig := by
@@ -642,8 +650,7 @@ theorem fastAggregateVerify_eq
 /-- **Main theorem (`eth_fast_aggregate_verify`).** -/
 theorem ethFastAggregateVerify_eq
     (hpair : ∀ pairs, Mirror.pairingCheck pairs = EthLib.Cryptography.Bls.pairingCheck pairs)
-    (hhash : ∀ msg dst, Mirror.HashToCurve.hashToG2 msg dst
-      = EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst)
+    (hhash : ∀ msg dst, HashRel msg dst)
     (pks : Array ByteArray) (msg sig : ByteArray) :
     ethFastAggregateVerify pks msg sig
       = EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig := by
