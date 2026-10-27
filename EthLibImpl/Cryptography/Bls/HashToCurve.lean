@@ -15,6 +15,12 @@ Algorithmic differences, none of which changes a value:
 * The square root inside SSWU: `Fp2.sqrt` may return the other root, and
   SSWU then fixes the sign with `sgn0`, which gives the spec's `y` either
   way.
+* SSWU takes one `Fp` exponentiation for `gx1` (the norm's square root
+  candidate `c`) and none for `gx2`: when `gx1` is not a square, `c` also
+  determines a square root of `N(gx2)` (`s125 · N(u)³ · c`, using
+  `g(Z·u²·x1) = (Z·u²)³·g(x1)`), so `gx2`'s root costs only the
+  `t^((p−3)/4)` of `Fp2.sqrtGivenNorm`. The spec's shape (`simpleSwuSlow`)
+  is kept for the exceptional inputs.
 * Independent inversions are batched (Montgomery's trick): the two SSWU
   denominators, the four isogeny denominators, and the two `z`s that `ψ`
   and `ψ²` normalize. Nine inversions become three. Inverses are unique,
@@ -71,13 +77,19 @@ def swuDenom (u : Fp2) : Fp2 × Fp2 :=
   let zu2 := Z * u.sqr
   (zu2, zu2.sqr + zu2)
 
-/-- Spec `simpleSwu`, given `swuDenom u = (zu2, denom)` and `denom`'s
-inverse. -/
-def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
-  let x1 :=
-    if denom.isZero then x1Exceptional
-    else negBOverA * (Fp2.one + denomInv)
-  let gx1 := x1.sqr * x1 + Aprime * x1 + Bprime
+/-- `s125² = −125`, where `125 = N(Z)³` and `N(Z) = 5` is the norm of `Z`. -/
+def s125 : Fp := Fp.ofNat
+  0x810e5a23cbb86fd12ded1af502287a397ed25c1d6fe0444e38c48e9c7ddb3c27cfebdd464e90f201fda0eb6983f2533
+
+/-- The spec's `panic!` when neither `gx1` nor `gx2` is a square (never reached: one of them
+always is). A constant so that no source position is duplicated elsewhere. -/
+def swuPanic : Fp2 × Fp2 := panic! "neither gx1 nor gx2 is a square"
+
+/-- The spec's square-root step of SSWU, given `x1` and `gx1 = g(x1)`: take
+`Fp2.sqrt gx1`, and on failure `Fp2.sqrt` of `gx2 = g(zu2·x1)`. Only used when
+the shortcut in `simpleSwuWith` does not apply (`gx1 ∈ Fp`, `denom = 0`, or
+`gx2 ∈ Fp`). -/
+def simpleSwuSlow (u zu2 x1 gx1 : Fp2) : Fp2 × Fp2 :=
   match Fp2.sqrt gx1 with
   | .ok y =>
     let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
@@ -89,7 +101,43 @@ def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
     | .ok y =>
       let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
       (x2, y)
-    | .error _ => panic! "neither gx1 nor gx2 is a square"
+    | .error _ => swuPanic
+
+/-- Spec `simpleSwu`, given `swuDenom u = (zu2, denom)` and `denom`'s
+inverse.
+
+When `denom ≠ 0` and `gx1 ∉ Fp`, the norm `n1 = N(gx1)` decides squareness
+with one exponentiation `c = n1^((p+1)/4)`. If `c² = n1`, `gx1` is a square
+and `Fp2.sqrtGivenNorm` finishes its root. Otherwise `c² = −n1` (Euler),
+and since `g(zu2·x1) = zu2³·g(x1)` with `N(zu2) = 5·N(u)²`, the element
+`s125·N(u)³·c` squares to `N(gx2)`: it is a root of `gx2`'s norm, so
+`gx2` is a square and its root needs no norm exponentiation either. The
+spec's two-step `Fp2.sqrt` (`simpleSwuSlow`) remains for the exceptional
+inputs. -/
+def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
+  let x1 :=
+    if denom.isZero then x1Exceptional
+    else negBOverA * (Fp2.one + denomInv)
+  let gx1 := x1.sqr * x1 + Aprime * x1 + Bprime
+  if gx1.c1.isZero || denom.isZero then
+    simpleSwuSlow u zu2 x1 gx1
+  else
+    let n1 := gx1.c0 * gx1.c0 + gx1.c1 * gx1.c1
+    let c := Fp.powNibbles n1 Fp.sqrtDigits
+    if (c * c).beq n1 then
+      let y := Fp2.sqrtGivenNorm gx1 c
+      let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
+      (x1, y)
+    else
+      let x2 := zu2 * x1
+      let gx2 := x2.sqr * x2 + Aprime * x2 + Bprime
+      if gx2.c1.isZero then
+        simpleSwuSlow u zu2 x1 gx1
+      else
+        let nu := u.c0 * u.c0 + u.c1 * u.c1
+        let y := Fp2.sqrtGivenNorm gx2 (s125 * (nu * nu * nu) * c)
+        let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
+        (x2, y)
 
 /-- Spec `simpleSwu`. -/
 def simpleSwu (u : Fp2) : Fp2 × Fp2 :=
