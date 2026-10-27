@@ -321,8 +321,7 @@ theorem ethFastAggregateVerify_eq_mirror (hcv : CoreVerifyHyp)
 `coreVerifyPoint`, pairing and hash-to-curve layers. -/
 theorem ethFastAggregateVerify_eq_spec (hcv : CoreVerifyHyp)
     (hpair : ∀ pairs, Mirror.pairingCheck pairs = EthLib.Cryptography.Bls.pairingCheck pairs)
-    (hhash : ∀ msg dst, Mirror.HashToCurve.hashToG2 msg dst
-      = EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst)
+    (hhash : ∀ msg dst, Mirror.Signatures.HashRel msg dst)
     (pks : Array ByteArray) (msg sig : ByteArray) :
     ethFastAggregateVerify pks msg sig
       = EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig := by
