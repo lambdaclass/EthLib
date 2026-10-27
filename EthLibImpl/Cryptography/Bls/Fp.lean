@@ -169,6 +169,91 @@ exact. The low word of the sum is zero; only its carry is kept. -/
   let (u5, d) := adc s5 (mulHi m P4) d
   ⟨u1, u2, u3, u4, u5, t.w6 + c + mulHi m P5 + d⟩
 
+/-! ## Wide products and Montgomery reduction
+
+For lazy reduction in `Fp2`: `mulWide` is the full 768-bit product (six
+`mulRow`s sliding along the accumulator, no reduction), and `redc` is the
+Montgomery reduction of a 768-bit value below `p · R` (six `redRow`s on the
+low half, then the high half added). One `mulWide` plus one `redc` is the
+same work as a `mul`, but sums and differences of wide products can be
+reduced once. -/
+
+/-- A 768-bit value, twelve little-endian words. -/
+structure W12 where
+  w0 : UInt64
+  w1 : UInt64
+  w2 : UInt64
+  w3 : UInt64
+  w4 : UInt64
+  w5 : UInt64
+  w6 : UInt64
+  w7 : UInt64
+  w8 : UInt64
+  w9 : UInt64
+  w10 : UInt64
+  w11 : UInt64
+
+/-- `a · b` as twelve words. -/
+@[inline] def mulWide (a b : Fp) : W12 :=
+  let r0 := mulRow zero a.l0 b
+  let r1 := mulRow ⟨r0.w1, r0.w2, r0.w3, r0.w4, r0.w5, r0.w6⟩ a.l1 b
+  let r2 := mulRow ⟨r1.w1, r1.w2, r1.w3, r1.w4, r1.w5, r1.w6⟩ a.l2 b
+  let r3 := mulRow ⟨r2.w1, r2.w2, r2.w3, r2.w4, r2.w5, r2.w6⟩ a.l3 b
+  let r4 := mulRow ⟨r3.w1, r3.w2, r3.w3, r3.w4, r3.w5, r3.w6⟩ a.l4 b
+  let r5 := mulRow ⟨r4.w1, r4.w2, r4.w3, r4.w4, r4.w5, r4.w6⟩ a.l5 b
+  ⟨r0.w0, r1.w0, r2.w0, r3.w0, r4.w0, r5.w0, r5.w1, r5.w2, r5.w3, r5.w4, r5.w5, r5.w6⟩
+
+/-- `a + b` with no reduction; callers keep the sum below `2^384`. -/
+@[inline] def addRaw (a b : Fp) : Fp :=
+  let (s0, c) := adc a.l0 b.l0 0
+  let (s1, c) := adc a.l1 b.l1 c
+  let (s2, c) := adc a.l2 b.l2 c
+  let (s3, c) := adc a.l3 b.l3 c
+  let (s4, c) := adc a.l4 b.l4 c
+  let (s5, _) := adc a.l5 b.l5 c
+  ⟨s0, s1, s2, s3, s4, s5⟩
+
+/-- `t · R⁻¹ mod p`, canonical, for `t < p · R`. The six rows compute
+`(t_lo + M·p) / R ≤ p` for the low half `t_lo`, and the high half
+`t_hi < p` is added, so one conditional subtraction finishes. -/
+@[inline] def redc (t : W12) : Fp :=
+  let v := redRow ⟨t.w0, t.w1, t.w2, t.w3, t.w4, t.w5, 0⟩
+  let v := redRow ⟨v.l0, v.l1, v.l2, v.l3, v.l4, v.l5, 0⟩
+  let v := redRow ⟨v.l0, v.l1, v.l2, v.l3, v.l4, v.l5, 0⟩
+  let v := redRow ⟨v.l0, v.l1, v.l2, v.l3, v.l4, v.l5, 0⟩
+  let v := redRow ⟨v.l0, v.l1, v.l2, v.l3, v.l4, v.l5, 0⟩
+  let v := redRow ⟨v.l0, v.l1, v.l2, v.l3, v.l4, v.l5, 0⟩
+  reduceOnce (addRaw v ⟨t.w6, t.w7, t.w8, t.w9, t.w10, t.w11⟩)
+
+/-- Twelve-word subtraction and its final borrow. -/
+@[inline] def sub12 (a b : W12) : W12 × UInt64 :=
+  let (d0, br) := sbb a.w0 b.w0 0
+  let (d1, br) := sbb a.w1 b.w1 br
+  let (d2, br) := sbb a.w2 b.w2 br
+  let (d3, br) := sbb a.w3 b.w3 br
+  let (d4, br) := sbb a.w4 b.w4 br
+  let (d5, br) := sbb a.w5 b.w5 br
+  let (d6, br) := sbb a.w6 b.w6 br
+  let (d7, br) := sbb a.w7 b.w7 br
+  let (d8, br) := sbb a.w8 b.w8 br
+  let (d9, br) := sbb a.w9 b.w9 br
+  let (d10, br) := sbb a.w10 b.w10 br
+  let (d11, br) := sbb a.w11 b.w11 br
+  (⟨d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11⟩, br)
+
+/-- `a − b`, plus `p · R` when that borrows (`p` added to the high half),
+so the result stays in `[0, p · R)` for `a, b < p · R`. -/
+@[inline] def subWideModPR (a b : W12) : W12 :=
+  let (d, br) := sub12 a b
+  let m := 0 - br
+  let (h0, c) := adc d.w6 (P0 &&& m) 0
+  let (h1, c) := adc d.w7 (P1 &&& m) c
+  let (h2, c) := adc d.w8 (P2 &&& m) c
+  let (h3, c) := adc d.w9 (P3 &&& m) c
+  let (h4, c) := adc d.w10 (P4 &&& m) c
+  let (h5, _) := adc d.w11 (P5 &&& m) c
+  ⟨d.w0, d.w1, d.w2, d.w3, d.w4, d.w5, h0, h1, h2, h3, h4, h5⟩
+
 /-! Every operation comes in two forms: an `@[inline]` one (`mulI`,
 `addI`, …) for fused callers such as `Fp2`, where the intermediate
 structures cancel against their projections and no `Fp` is allocated, and
@@ -188,8 +273,10 @@ product. -/
 
 def mul (a b : Fp) : Fp := mulI a b
 
-/-- Field squaring. -/
-@[inline] def sqr (a : Fp) : Fp := mul a a
+/-- Field squaring. A function of its own (not `mul a a`), so that an
+exclusive argument's memory is reused for the result: in exponentiation
+loops this saves an allocation and a free per squaring. -/
+def sqr (a : Fp) : Fp := mulI a a
 
 /-! ## Additive operations -/
 
@@ -202,7 +289,7 @@ def mul (a b : Fp) : Fp := mulI a b
   let (s5, _) := adc a.l5 b.l5 c
   reduceOnce ⟨s0, s1, s2, s3, s4, s5⟩
 
-def add (a b : Fp) : Fp := addI a b
+@[inline] def add (a b : Fp) : Fp := addI a b
 
 /-- `a - b`, adding `p` back (masked) when the subtraction borrows. -/
 @[inline] def subI (a b : Fp) : Fp :=
@@ -221,7 +308,7 @@ def add (a b : Fp) : Fp := addI a b
   let (s5, _) := adc d5 (P5 &&& m) c
   ⟨s0, s1, s2, s3, s4, s5⟩
 
-def sub (a b : Fp) : Fp := subI a b
+@[inline] def sub (a b : Fp) : Fp := subI a b
 
 @[inline] def isZero (a : Fp) : Bool :=
   (a.l0 ||| a.l1 ||| a.l2 ||| a.l3 ||| a.l4 ||| a.l5) == 0
@@ -238,7 +325,7 @@ def sub (a b : Fp) : Fp := subI a b
   let m := 0 - ((a.l0 ||| a.l1 ||| a.l2 ||| a.l3 ||| a.l4 ||| a.l5) != 0).toUInt64
   ⟨d0 &&& m, d1 &&& m, d2 &&& m, d3 &&& m, d4 &&& m, d5 &&& m⟩
 
-def neg (a : Fp) : Fp := negI a
+@[inline] def neg (a : Fp) : Fp := negI a
 
 @[inline] def doubleI (a : Fp) : Fp := addI a a
 

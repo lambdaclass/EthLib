@@ -144,29 +144,47 @@ theorem toSpec_double {x : Fp2} (hx : Canonical x) :
 
 /-! ## Multiplicative operations -/
 
+local notation "Z" => ZMod EthLib.Cryptography.Bls.Fp.modulus
+
+/-- The lazy Karatsuba product: canonical, with parts `c0·R = x0·y0 - x1·y1` and
+`c1·R = x0·y1 + x1·y0` on raw integers in `ZMod p`. -/
+theorem mulI_parts {x y : Fp2} (hx : Canonical x) (hy : Canonical y) :
+    Canonical (mulI x y) ∧
+    ((mulI x y).c0.raw : Z) * (2 : Z) ^ 384 =
+      (x.c0.raw : Z) * (y.c0.raw : Z) - (x.c1.raw : Z) * (y.c1.raw : Z) ∧
+    ((mulI x y).c1.raw : Z) * (2 : Z) ^ 384 =
+      (x.c0.raw : Z) * (y.c1.raw : Z) + (x.c1.raw : Z) * (y.c0.raw : Z) := by
+  obtain ⟨hx0, hx1⟩ := hx
+  obtain ⟨hy0, hy1⟩ := hy
+  obtain ⟨hW, hWz⟩ := Fp.lazy_re hx0 hx1 hy0 hy1
+  obtain ⟨hVz, hV⟩ := Fp.lazy_im hx0 hx1 hy0 hy1
+  have r1 := Fp.redc_spec _ hW
+  have r2 := Fp.redc_spec _ hV
+  have e : mulI x y = mk
+      (Fp.redc (Fp.subWideModPR (Fp.mulWide x.c0 y.c0) (Fp.mulWide x.c1 y.c1)))
+      (Fp.redc (Fp.sub12 (Fp.sub12 (Fp.mulWide (Fp.addRaw x.c0 x.c1) (Fp.addRaw y.c0 y.c1))
+        (Fp.mulWide x.c0 y.c0)).1 (Fp.mulWide x.c1 y.c1)).1) := rfl
+  rw [e]
+  refine ⟨⟨r1.1, r2.1⟩, ?_, ?_⟩
+  · show ((Fp.redc _).raw : Z) * 2 ^ 384 = _
+    rw [r1.2, hWz]
+  · show ((Fp.redc _).raw : Z) * 2 ^ 384 = _
+    rw [r2.2, hVz]
+    push_cast
+    ring
+
 theorem mulI_canonical {x y : Fp2} (_hx : Canonical x) (hy : Canonical y) :
-    Canonical (mulI x y) := by
-  have h0 := Fp.mulI_canonical x.c0 hy.1
-  have h1 := Fp.mulI_canonical x.c1 hy.2
-  have h2 := Fp.mulI_canonical (Fp.addI x.c0 x.c1) (Fp.addI_canonical hy.1 hy.2)
-  exact ⟨Fp.subI_canonical h0 h1, Fp.subI_canonical (Fp.subI_canonical h2 h0) h1⟩
+    Canonical (mulI x y) :=
+  (mulI_parts _hx hy).1
 
 theorem toSpec_mulI {x y : Fp2} (hx : Canonical x) (hy : Canonical y) :
     toSpec (mulI x y) = toSpec x * toSpec y := by
-  have h0 := Fp.mulI_canonical x.c0 hy.1
-  have h1 := Fp.mulI_canonical x.c1 hy.2
-  have ht := Fp.addI_canonical hy.1 hy.2
-  have h2 := Fp.mulI_canonical (Fp.addI x.c0 x.c1) ht
+  obtain ⟨-, h0, h1⟩ := mulI_parts hx hy
   apply spec_ext
-  · show (Fp.subI (Fp.mulI x.c0 y.c0) (Fp.mulI x.c1 y.c1)).val =
-      x.c0.val * y.c0.val - x.c1.val * y.c1.val
-    rw [Fp.val_subI h0 h1, Fp.val_mulI _ hy.1, Fp.val_mulI _ hy.2]
-  · show (Fp.subI (Fp.subI (Fp.mulI (Fp.addI x.c0 x.c1) (Fp.addI y.c0 y.c1)) (Fp.mulI x.c0 y.c0))
-      (Fp.mulI x.c1 y.c1)).val = x.c0.val * y.c1.val + x.c1.val * y.c0.val
-    rw [Fp.val_subI (Fp.subI_canonical h2 h0) h1, Fp.val_subI h2 h0,
-      Fp.val_mulI _ hy.1, Fp.val_mulI _ hy.2, Fp.val_mulI _ ht, Fp.val_addI hx.1 hx.2,
-      Fp.val_addI hy.1 hy.2]
-    fp_ring
+  · show (mulI x y).c0.val = x.c0.val * y.c0.val - x.c1.val * y.c1.val
+    exact Fp.val_sub_mul_of h0
+  · show (mulI x y).c1.val = x.c0.val * y.c1.val + x.c1.val * y.c0.val
+    exact Fp.val_add_mul_of h1
 
 theorem mul_canonical {x y : Fp2} (hx : Canonical x) (hy : Canonical y) : Canonical (mul x y) :=
   mulI_canonical hx hy
