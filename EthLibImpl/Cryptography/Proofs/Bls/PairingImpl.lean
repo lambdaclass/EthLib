@@ -422,34 +422,24 @@ theorem cycPowAbsX_spec {g : Fp12} (hg : g.Canonical) :
   rw [blsXWord_toNat] at this
   exact this
 
-theorem lamFactor_toNat : lamFactor.toNat = Mirror.lamFactor := by decide
-
 theorem cycPowAbsX_canonical {g : Fp12} (hg : g.Canonical) : (cycPowAbsX g).Canonical :=
   (cycPowAbsX_spec hg).1
 
 theorem toSpec_cycPowAbsX {g : Fp12} (hg : g.Canonical) :
     (cycPowAbsX g).toSpec = Mirror.cycPowAbsX g.toSpec := (cycPowAbsX_spec hg).2
 
-theorem cycPowLam_canonical {g a : Fp12} (hg : g.Canonical) (ha : a.Canonical) :
-    (cycPowMsb g lamFactor 62 a).Canonical :=
-  (cycPowMsb_spec hg lamFactor 62 (by omega) ha).1
-
-theorem toSpec_cycPowLam {g a : Fp12} (hg : g.Canonical) (ha : a.Canonical) :
-    (cycPowMsb g lamFactor 62 a).toSpec = Mirror.cycPowMsb g.toSpec Mirror.lamFactor 62 a.toSpec := by
-  rw [← lamFactor_toNat]; exact (cycPowMsb_spec hg lamFactor 62 (by omega) ha).2
-
 section fin
 
 attribute [local simp] Fp12.toSpec_hMul Fp12.canonical_hMul Fp12.conj_canonical Fp12.toSpec_conj
   Fp12.inverse_canonical Fp12.toSpec_inverse Fp12.frobenius1_canonical Fp12.toSpec_frobenius1
   Fp12.frobenius2_canonical Fp12.toSpec_frobenius2 cycPowAbsX_canonical toSpec_cycPowAbsX
-  cycPowLam_canonical toSpec_cycPowLam
+  Fp12.cycSqr_canonical Fp12.toSpec_cycSqr
 
 /-- The final exponentiation computes the mirror's. -/
-theorem finalExponentiation_spec {f : Fp12} (hf : f.Canonical) :
-    (finalExponentiation f).Canonical ∧
-      (finalExponentiation f).toSpec = Mirror.finalExponentiation f.toSpec := by
-  unfold finalExponentiation Mirror.finalExponentiation
+theorem finalExpCube_spec {f : Fp12} (hf : f.Canonical) :
+    (finalExpCube f).Canonical ∧
+      (finalExpCube f).toSpec = Mirror.finalExpCube f.toSpec := by
+  unfold finalExpCube Mirror.finalExpCube
   refine ⟨?_, ?_⟩ <;> simp (config := {maxDischargeDepth := 40}) [hf]
 
 end fin
@@ -516,7 +506,7 @@ theorem pairingCheck_spec (pairs : Array (G1 × G2))
   rw [e]
   obtain ⟨m1, m2⟩ := millerLoop_spec c
   have hc := Fp12.conj_canonical m1
-  obtain ⟨f1, f2⟩ := finalExponentiation_spec hc
+  obtain ⟨f1, f2⟩ := finalExpCube_spec hc
   rw [← Fp12.isOne_eq f1, f2, Fp12.toSpec_conj m1, m2]
 
 end EthLibImpl.Cryptography.Bls
