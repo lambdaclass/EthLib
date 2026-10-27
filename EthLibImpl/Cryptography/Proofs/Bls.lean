@@ -14,6 +14,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.G2Check
 import EthLibImpl.Cryptography.Proofs.Bls.G2Defs
 import EthLibImpl.Cryptography.Proofs.Bls.G2Group
 import EthLibImpl.Cryptography.Proofs.Bls.G2Order
+import EthLibImpl.Cryptography.Proofs.Bls.G2Proj
 import EthLibImpl.Cryptography.Proofs.Bls.G2Psi
 import EthLibImpl.Cryptography.Proofs.Bls.G2Subgroup
 import EthLibImpl.Cryptography.Proofs.Bls.HashImpl

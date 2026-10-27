@@ -5,7 +5,8 @@ import EthLibImpl.Cryptography.Proofs.Bls.SpecFp2
 # Mirror: the implementation's hash-to-curve over spec types
 
 `EthLibImpl.Cryptography.Bls.HashToCurve` restated over the spec's `Fp2`
-and `G2`, formula for formula (see `MirrorPairing` for why mirrors exist).
+and `G2`, formula for formula; its isogeny and `ψ` stay Jacobian, so its result is the spec's
+point up to scaling (see `MirrorPairing` for why mirrors exist).
 The implementation's `Fp2.sqrt` appears here as the spec-level
 `Fp2.sqrtAlt` (`SpecFp2`), its `mulNegX` (64-bit scalar) as the spec's own
 `mulNegX` (same recursion), and its constants as the spec's private ones,
@@ -75,29 +76,23 @@ def isoParts (xp : Fp2) : Fp2 × Fp2 × Fp2 × Fp2 :=
   let yDen := xp3 + k42 * xp2 + k41 * xp + k40
   (xNum, xDen, yNum, yDen)
 
-def isoMapWith (yp xNum yNum xDenInv yDenInv : Fp2) : Fp2 × Fp2 :=
-  (xNum * xDenInv, yp * yNum * yDenInv)
+def isoMapJac (xp yp : Fp2) : G2 :=
+  let (xNum, xDen, yNum, yDen) := isoParts xp
+  if xDen.isZero || yDen.isZero then
+    ⟨xNum * xDen.inverse, yp * yNum * yDen.inverse, Fp2.one⟩
+  else
+    let z := xDen * yDen
+    let zy := z * yDen
+    ⟨xNum * zy, yp * yNum * (zy * (xDen * xDen)), z⟩
 
-def toAffineWith (P : G2) (zinv : Fp2) : Fp2 × Fp2 :=
-  let zinv2 := zinv * zinv
-  (P.x * zinv2, P.y * (zinv2 * zinv))
+def psiJac (P : G2) : G2 := ⟨c1Psi * P.x.conjugate, c2Psi * P.y.conjugate, P.z.conjugate⟩
 
-def psiWith (P : G2) (zinv : Fp2) : G2 :=
-  if P.z.isZero then P else
-    let (x, y) := toAffineWith P zinv
-    ⟨c1Psi * x.conjugate, c2Psi * y.conjugate, Fp2.one⟩
+def psi2Jac (P : G2) : G2 := ⟨c1Psi2 * P.x, -P.y, P.z⟩
 
-def psi2With (P : G2) (zinv : Fp2) : G2 :=
-  if P.z.isZero then P else
-    let (x, y) := toAffineWith P zinv
-    ⟨c1Psi2 * x, -y, Fp2.one⟩
-
-def clearCofactor (P : G2) : G2 :=
+def clearCofactorJac (P : G2) : G2 :=
   let t1 := mulNegX P
-  let P2 := G2.double P
-  let (zi, zi2) := batchInverse2 P.z P2.z
-  let t2 := psiWith P zi
-  let t3 := psi2With P2 zi2
+  let t2 := psiJac P
+  let t3 := psi2Jac (G2.double P)
   let t3 := G2.add t3 (G2.neg t2)
   let t2 := G2.add t1 t2
   let t2 := mulNegX t2
@@ -114,13 +109,6 @@ def hashToG2 (msg : ByteArray) (dst : ByteArray) : Except BlsError G2 := do
   let (di0, di1) := batchInverse2 den0 den1
   let (x0, y0) := simpleSwuWith u0 zu0 den0 di0
   let (x1, y1) := simpleSwuWith u1 zu1 den1 di1
-  let (xn0, xd0, yn0, yd0) := isoParts x0
-  let (xn1, xd1, yn1, yd1) := isoParts x1
-  let (xi0, yi0, xi1, yi1) := batchInverse4 xd0 yd0 xd1 yd1
-  let (xa, ya) := isoMapWith y0 xn0 yn0 xi0 yi0
-  let (xb, yb) := isoMapWith y1 xn1 yn1 xi1 yi1
-  let p0 : G2 := ⟨xa, ya, Fp2.one⟩
-  let p1 : G2 := ⟨xb, yb, Fp2.one⟩
-  return clearCofactor (G2.add p0 p1)
+  return clearCofactorJac (G2.add (isoMapJac x0 y0) (isoMapJac x1 y1))
 
 end EthLibImpl.Cryptography.Bls.Mirror.HashToCurve
