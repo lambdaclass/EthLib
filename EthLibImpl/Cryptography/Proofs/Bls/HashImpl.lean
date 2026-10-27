@@ -314,6 +314,56 @@ theorem hashToFieldFp2_spec_aux (msg dst : ByteArray) (count : Nat) :
 
 end EthLibImpl.Cryptography.Bls.HashConst
 
+namespace EthLibImpl.Cryptography.Bls.Fp2
+
+open EthLib.Cryptography.Bls (BlsError)
+
+/-- `sqrtGivenNorm` with `1/2` and the exponent's digits as parameters (the kernel would
+otherwise evaluate these concrete constants while checking zeta-reductions). -/
+def sqrtGN (half : Fp) (dg : ByteArray) (a : Fp2) (s : Fp) : Fp2 :=
+  let t := (a.c0 + s) * half
+  let d := Fp.powNibbles t dg
+  let dt := d * t
+  let hd := a.c1 * d * half
+  if (d * dt).beq Fp.one then mk dt hd else mk (-hd) dt
+
+theorem sqrtGivenNorm_eq_GN : sqrtGivenNorm = sqrtGN halfFp invSqrtDigits := rfl
+
+theorem sqrtOk_eq_ok (half : Fp) (dg : ByteArray) (a : Fp2) (s : Fp) :
+    sqrtOk half dg a s = .ok (sqrtGN half dg a s) := by
+  unfold sqrtOk sqrtGN
+  dsimp only
+  split <;> rfl
+
+/-- The spec-level counterpart of `sqrtGN`. -/
+def sqrtGN' (half : EthLib.Cryptography.Bls.Fp) (e : Nat) (a : EthLib.Cryptography.Bls.Fp2) (s : EthLib.Cryptography.Bls.Fp) : EthLib.Cryptography.Bls.Fp2 :=
+  let t := (a.c0 + s) * half
+  let d := EthLib.Cryptography.Bls.Fp.powNat t e
+  let dt := d * t
+  let hd := a.c1 * d * half
+  if (d * dt).beq EthLib.Cryptography.Bls.Fp.one then ⟨dt, hd⟩ else ⟨-hd, dt⟩
+
+theorem sqrtAltOk_eq_ok (half : EthLib.Cryptography.Bls.Fp) (e : Nat) (a : EthLib.Cryptography.Bls.Fp2) (s : EthLib.Cryptography.Bls.Fp) :
+    sqrtAltOk half e a s = .ok (sqrtGN' half e a s) := by
+  unfold sqrtAltOk sqrtGN'
+  dsimp only
+  split <;> rfl
+
+theorem mirror_sqrtGivenNorm_eq : Mirror.HashToCurve.sqrtGivenNorm =
+    sqrtGN' (EthLib.Cryptography.Bls.Fp.ofNat 2).inverse ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4) := rfl
+
+/-- `sqrtGivenNorm` computes the mirror's. -/
+theorem sqrtGivenNorm_spec {a : Fp2} {s : Fp} (ha : Canonical a) (hs : s.Canonical) :
+    (sqrtGivenNorm a s).Canonical ∧
+      (sqrtGivenNorm a s).toSpec = Mirror.HashToCurve.sqrtGivenNorm a.toSpec s.val := by
+  rw [sqrtGivenNorm_eq_GN, mirror_sqrtGivenNorm_eq]
+  obtain ⟨h1, h2⟩ := sqrtOk_spec halfFp (EthLib.Cryptography.Bls.Fp.ofNat 2).inverse halfFp_canonical halfFp_val
+    ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4) ha hs
+  rw [sqrtOk_eq_ok, sqrtAltOk_eq_ok] at h1
+  exact ⟨h2 _ (sqrtOk_eq_ok _ _ _ _), Except.ok.inj h1⟩
+
+end EthLibImpl.Cryptography.Bls.Fp2
+
 namespace EthLibImpl.Cryptography.Bls.HashToCurve
 
 open scoped EthLib.Cryptography.Bls.Fp2
@@ -360,75 +410,123 @@ def PRel (p : Fp2 × Fp2) (q : EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptograph
 
 
 
-def swuG (x1e nBA A B : Fp2) (sq : Fp2 → Except BlsError Fp2) (sgn : Fp2 → Bool)
-    (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
-  let x1 := if denom.isZero then x1e else nBA * (Fp2.one + denomInv)
-  let gx1 := x1.sqr * x1 + A * x1 + B
-  simpleSwuWith.match_1 (fun _ => Fp2 × Fp2) (sq gx1)
+/-- The implementation's slow path (`simpleSwuSlow`) with the constants, the square root and
+`sgn0` as parameters. -/
+def swuSlowG (A B : Fp2) (sq : Fp2 → Except BlsError Fp2) (sgn : Fp2 → Bool)
+    (u zu2 x1 gx1 : Fp2) : Fp2 × Fp2 :=
+  simpleSwuSlow.match_1 (fun _ => Fp2 × Fp2) (sq gx1)
     (fun y =>
       let y := if sgn u = sgn y then y else -y
       (x1, y))
     (fun _ =>
       let x2 := zu2 * x1
       let gx2 := x2.sqr * x2 + A * x2 + B
-      simpleSwuWith.match_1 (fun _ => Fp2 × Fp2) (sq gx2)
+      simpleSwuSlow.match_1 (fun _ => Fp2 × Fp2) (sq gx2)
         (fun y =>
           let y := if sgn u = sgn y then y else -y
           (x2, y))
         (fun _ =>
-          @panicWithPosWithDecl (Fp2 × Fp2) _ "EthLibImpl.Cryptography.Bls.HashToCurve"
-            "EthLibImpl.Cryptography.Bls.HashToCurve.simpleSwuWith" 92 18
-            "neither gx1 nor gx2 is a square"))
+          swuPanic))
+
+theorem simpleSwuSlow_eq_G : simpleSwuSlow =
+    swuSlowG Aprime Bprime Fp2.sqrt sgn0Fp2 := rfl
+
+/-- The implementation's SSWU with its constants, the square root, `sgn0`, the norm's
+square-root candidate `cn` and the root from a norm root `gn` as parameters. -/
+def swuG (x1e nBA A B : Fp2) (s : Fp) (slow : Fp2 → Fp2 → Fp2 → Fp2 → Fp2 × Fp2) (sgn : Fp2 → Bool)
+    (cn : Fp → Fp) (gn : Fp2 → Fp → Fp2)
+    (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
+  let x1 := if denom.isZero then x1e else nBA * (Fp2.one + denomInv)
+  let gx1 := x1.sqr * x1 + A * x1 + B
+  if gx1.c1.isZero || denom.isZero then
+    slow u zu2 x1 gx1
+  else
+    let n1 := gx1.c0 * gx1.c0 + gx1.c1 * gx1.c1
+    let c := cn n1
+    if (c * c).beq n1 then
+      let y := gn gx1 c
+      let y := if sgn u = sgn y then y else -y
+      (x1, y)
+    else
+      let x2 := zu2 * x1
+      let gx2 := x2.sqr * x2 + A * x2 + B
+      if gx2.c1.isZero then
+        slow u zu2 x1 gx1
+      else
+        let nu := u.c0 * u.c0 + u.c1 * u.c1
+        let y := gn gx2 (s * (nu * nu * nu) * c)
+        let y := if sgn u = sgn y then y else -y
+        (x2, y)
 
 theorem simpleSwuWith_eq_G : simpleSwuWith =
-    swuG x1Exceptional negBOverA Aprime Bprime Fp2.sqrt sgn0Fp2 := rfl
+    swuG x1Exceptional negBOverA Aprime Bprime s125 simpleSwuSlow sgn0Fp2
+      (fun n => Fp.powNibbles n Fp.sqrtDigits) Fp2.sqrtGivenNorm := rfl
 
 theorem match_ok {motive : Except BlsError Fp2 → Sort 1} (y : Fp2)
     (h1 : (y : Fp2) → motive (.ok y)) (h2 : (a : BlsError) → motive (.error a)) :
-    simpleSwuWith.match_1 motive (.ok y) h1 h2 = h1 y := rfl
+    simpleSwuSlow.match_1 motive (.ok y) h1 h2 = h1 y := rfl
 
 theorem match_error {motive : Except BlsError Fp2 → Sort 1} (e : BlsError)
     (h1 : (y : Fp2) → motive (.ok y)) (h2 : (a : BlsError) → motive (.error a)) :
-    simpleSwuWith.match_1 motive (.error e) h1 h2 = h2 e := rfl
+    simpleSwuSlow.match_1 motive (.error e) h1 h2 = h2 e := rfl
 
-/-- The mirror's SSWU with the constants, the square root and `sgn0` as parameters. -/
-def swuG' (x1e nBA A B : EthLib.Cryptography.Bls.Fp2)
-    (sq : EthLib.Cryptography.Bls.Fp2 → Except BlsError EthLib.Cryptography.Bls.Fp2)
-    (sgn : EthLib.Cryptography.Bls.Fp2 → Bool)
-    (u zu2 denom denomInv : EthLib.Cryptography.Bls.Fp2) :
-    EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2 :=
-  let x1 := if denom.isZero then x1e else nBA * (EthLib.Cryptography.Bls.Fp2.one + denomInv)
-  let gx1 := x1 * x1 * x1 + A * x1 + B
-  Mirror.HashToCurve.simpleSwuWith.match_1
-    (fun _ => EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2) (sq gx1)
+/-- The mirror's slow path with the constants, the square root and `sgn0` as parameters. -/
+def swuSlowG' (A B : EthLib.Cryptography.Bls.Fp2)
+    (sq : EthLib.Cryptography.Bls.Fp2 → Except BlsError EthLib.Cryptography.Bls.Fp2) (sgn : EthLib.Cryptography.Bls.Fp2 → Bool)
+    (u zu2 x1 gx1 : EthLib.Cryptography.Bls.Fp2) : EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2 :=
+  Mirror.HashToCurve.simpleSwuSlow.match_1 (fun _ => EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2) (sq gx1)
     (fun y =>
       let y := if sgn u = sgn y then y else -y
       (x1, y))
     (fun _ =>
       let x2 := zu2 * x1
       let gx2 := x2 * x2 * x2 + A * x2 + B
-      Mirror.HashToCurve.simpleSwuWith.match_1
-        (fun _ => EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2) (sq gx2)
+      Mirror.HashToCurve.simpleSwuSlow.match_1 (fun _ => EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2) (sq gx2)
         (fun y =>
           let y := if sgn u = sgn y then y else -y
           (x2, y))
         (fun _ =>
-          @panicWithPosWithDecl (EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2) _
-            "EthLibImpl.Cryptography.Proofs.Bls.MirrorHash"
-            "EthLibImpl.Cryptography.Bls.Mirror.HashToCurve.simpleSwuWith" 67 18
-            "neither gx1 nor gx2 is a square"))
+          Mirror.HashToCurve.swuPanic))
+
+/-- The mirror's SSWU with the constants, the square root, `sgn0`, the candidate and the root
+from a norm root as parameters. -/
+def swuG' (x1e nBA A B : EthLib.Cryptography.Bls.Fp2) (s : EthLib.Cryptography.Bls.Fp)
+    (slow : EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2) (sgn : EthLib.Cryptography.Bls.Fp2 → Bool)
+    (cn : EthLib.Cryptography.Bls.Fp → EthLib.Cryptography.Bls.Fp) (gn : EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp → EthLib.Cryptography.Bls.Fp2)
+    (u zu2 denom denomInv : EthLib.Cryptography.Bls.Fp2) : EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2 :=
+  let x1 := if denom.isZero then x1e else nBA * (EthLib.Cryptography.Bls.Fp2.one + denomInv)
+  let gx1 := x1 * x1 * x1 + A * x1 + B
+  if gx1.c1.isZero || denom.isZero then
+    slow u zu2 x1 gx1
+  else
+    let n1 := gx1.c0 * gx1.c0 + gx1.c1 * gx1.c1
+    let c := cn n1
+    if (c * c).beq n1 then
+      let y := gn gx1 c
+      let y := if sgn u = sgn y then y else -y
+      (x1, y)
+    else
+      let x2 := zu2 * x1
+      let gx2 := x2 * x2 * x2 + A * x2 + B
+      if gx2.c1.isZero then
+        slow u zu2 x1 gx1
+      else
+        let nu := u.c0 * u.c0 + u.c1 * u.c1
+        let y := gn gx2 (s * (nu * nu * nu) * c)
+        let y := if sgn u = sgn y then y else -y
+        (x2, y)
 
 theorem match_ok' {motive : Except BlsError EthLib.Cryptography.Bls.Fp2 → Sort 1}
     (y : EthLib.Cryptography.Bls.Fp2)
     (h1 : (y : EthLib.Cryptography.Bls.Fp2) → motive (.ok y))
     (h2 : (a : BlsError) → motive (.error a)) :
-    Mirror.HashToCurve.simpleSwuWith.match_1 motive (.ok y) h1 h2 = h1 y := rfl
+    Mirror.HashToCurve.simpleSwuSlow.match_1 motive (.ok y) h1 h2 = h1 y := rfl
 
 theorem match_error' {motive : Except BlsError EthLib.Cryptography.Bls.Fp2 → Sort 1}
     (e : BlsError)
     (h1 : (y : EthLib.Cryptography.Bls.Fp2) → motive (.ok y))
     (h2 : (a : BlsError) → motive (.error a)) :
-    Mirror.HashToCurve.simpleSwuWith.match_1 motive (.error e) h1 h2 = h2 e := rfl
+    Mirror.HashToCurve.simpleSwuSlow.match_1 motive (.error e) h1 h2 = h2 e := rfl
 
 theorem sel_neg {sgn : Fp2 → Bool} {sgn' : EthLib.Cryptography.Bls.Fp2 → Bool}
     (hsgn : ∀ y : Fp2, y.Canonical → sgn y = sgn' y.toSpec) {u y : Fp2}
@@ -442,9 +540,19 @@ theorem sel_neg {sgn : Fp2 → Bool} {sgn' : EthLib.Cryptography.Bls.Fp2 → Boo
   · rw [if_neg h, if_neg h]
     exact ⟨Fp2.canonical_hNeg hy, Fp2.toSpec_hNeg hy⟩
 
-theorem swuG_spec (x1e nBA A B : Fp2) (x1e' nBA' A' B' : EthLib.Cryptography.Bls.Fp2)
-    (hx : x1e.Canonical) (hxv : x1e.toSpec = x1e')
-    (hn : nBA.Canonical) (hnv : nBA.toSpec = nBA')
+theorem gx_spec {x A B : Fp2} {A' B' : EthLib.Cryptography.Bls.Fp2} (hx : x.Canonical)
+    (hA : A.Canonical) (hAv : A.toSpec = A') (hB : B.Canonical) (hBv : B.toSpec = B') :
+    (x.sqr * x + A * x + B).Canonical ∧
+      (x.sqr * x + A * x + B).toSpec = x.toSpec * x.toSpec * x.toSpec + A' * x.toSpec + B' := by
+  have hs := Fp2.sqr_canonical hx
+  have hm := Fp2.canonical_hMul hs hx
+  have hA1 := Fp2.canonical_hMul hA hx
+  refine ⟨Fp2.canonical_hAdd (Fp2.canonical_hAdd hm hA1) hB, ?_⟩
+  rw [Fp2.toSpec_hAdd (Fp2.canonical_hAdd hm hA1) hB, Fp2.toSpec_hAdd hm hA1,
+    Fp2.toSpec_hMul hs hx, Fp2.toSpec_sqr hx, Fp2.toSpec_hMul hA hx, hAv, hBv]
+
+/-- The slow path computes the mirror's. -/
+theorem swuSlowG_spec (A B : Fp2) (A' B' : EthLib.Cryptography.Bls.Fp2)
     (hA : A.Canonical) (hAv : A.toSpec = A') (hB : B.Canonical) (hBv : B.toSpec = B')
     (sq : Fp2 → Except BlsError Fp2)
     (sq' : EthLib.Cryptography.Bls.Fp2 → Except BlsError EthLib.Cryptography.Bls.Fp2)
@@ -452,13 +560,78 @@ theorem swuG_spec (x1e nBA A B : Fp2) (x1e' nBA' A' B' : EthLib.Cryptography.Bls
       ∀ c, sq a = .ok c → c.Canonical)
     (sgn : Fp2 → Bool) (sgn' : EthLib.Cryptography.Bls.Fp2 → Bool)
     (hsgn : ∀ y : Fp2, y.Canonical → sgn y = sgn' y.toSpec)
-    (hdef : (default : Fp2 × Fp2).1.Canonical ∧ (default : Fp2 × Fp2).2.Canonical ∧
-      (((default : Fp2 × Fp2).1.toSpec, (default : Fp2 × Fp2).2.toSpec) =
-        (default : EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2)))
+    (hpan : PRel swuPanic Mirror.HashToCurve.swuPanic)
+    {u zu2 x1 gx1 : Fp2} (hu : u.Canonical) (hz : zu2.Canonical) (hx : x1.Canonical)
+    (hg : gx1.Canonical) :
+    PRel (swuSlowG A B sq sgn u zu2 x1 gx1)
+      (swuSlowG' A' B' sq' sgn' u.toSpec zu2.toSpec x1.toSpec gx1.toSpec) := by
+  unfold swuSlowG swuSlowG'
+  dsimp only
+  obtain ⟨hsm, hsc⟩ := hsq gx1 hg
+  rw [← hsm]
+  rcases hs : sq gx1 with e | y
+  · simp only [Except.map, match_error, match_error']
+    have hx2c : (zu2 * x1).Canonical := Fp2.canonical_hMul hz hx
+    have hx2v : (zu2 * x1).toSpec = zu2.toSpec * x1.toSpec := Fp2.toSpec_hMul hz hx
+    rw [← hx2v]
+    generalize zu2 * x1 = x2 at hx2c hx2v ⊢
+    obtain ⟨hgc2, hgv2⟩ := gx_spec hx2c hA hAv hB hBv
+    rw [← hgv2]
+    generalize x2.sqr * x2 + A * x2 + B = G2 at hgc2 ⊢
+    obtain ⟨hsm2, hsc2⟩ := hsq G2 hgc2
+    rw [← hsm2]
+    rcases hs2' : sq G2 with e2 | y2
+    · simp only [Except.map, match_error, match_error']
+      exact hpan
+    · have hyc2 := hsc2 y2 hs2'
+      simp only [Except.map, match_ok, match_ok']
+      obtain ⟨c, v⟩ := sel_neg hsgn hu hyc2
+      refine ⟨hx2c, c, ?_⟩
+      show (x2.toSpec, _) = (x2.toSpec, _)
+      rw [v]
+  · have hyc := hsc y hs
+    simp only [Except.map, match_ok, match_ok']
+    obtain ⟨c, v⟩ := sel_neg hsgn hu hyc
+    refine ⟨hx, c, ?_⟩
+    show (x1.toSpec, _) = (x1.toSpec, _)
+    rw [v]
+
+theorem t_spec {s nu c : Fp} (hnu : nu.Canonical) (hc : c.Canonical) :
+    (s * (nu * nu * nu) * c).Canonical ∧
+      (s * (nu * nu * nu) * c).val = s.val * (nu.val * nu.val * nu.val) * c.val := by
+  have h1 : (nu * nu).Canonical := G1.mul_c hnu
+  have h2 : (nu * nu * nu).Canonical := G1.mul_c hnu
+  refine ⟨G1.mul_c hc, ?_⟩
+  rw [G1.mul_v hc, G1.mul_v h2, G1.mul_v hnu, G1.mul_v hnu]
+
+theorem norm_spec {a b : Fp} (ha : a.Canonical) (hb : b.Canonical) :
+    (a * a + b * b).Canonical ∧ (a * a + b * b).val = a.val * a.val + b.val * b.val := by
+  have hm0 : (a * a).Canonical := G1.mul_c ha
+  have hm1 : (b * b).Canonical := G1.mul_c hb
+  refine ⟨G1.add_c hm0 hm1, ?_⟩
+  rw [G1.add_v hm0 hm1, G1.mul_v ha, G1.mul_v hb]
+
+theorem swuG_spec (x1e nBA A B : Fp2) (s : Fp) (x1e' nBA' A' B' : EthLib.Cryptography.Bls.Fp2) (s' : EthLib.Cryptography.Bls.Fp)
+    (hx : x1e.Canonical) (hxv : x1e.toSpec = x1e')
+    (hn : nBA.Canonical) (hnv : nBA.toSpec = nBA')
+    (hA : A.Canonical) (hAv : A.toSpec = A') (hB : B.Canonical) (hBv : B.toSpec = B')
+    (hsv : s.val = s')
+    (slow : Fp2 → Fp2 → Fp2 → Fp2 → Fp2 × Fp2)
+    (slow' : EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2)
+    (hslow : ∀ {u zu2 x1 gx1 : Fp2}, u.Canonical → zu2.Canonical → x1.Canonical →
+      gx1.Canonical → PRel (slow u zu2 x1 gx1)
+        (slow' u.toSpec zu2.toSpec x1.toSpec gx1.toSpec))
+    (sgn : Fp2 → Bool) (sgn' : EthLib.Cryptography.Bls.Fp2 → Bool)
+    (hsgn : ∀ y : Fp2, y.Canonical → sgn y = sgn' y.toSpec)
+    (cn : Fp → Fp) (cn' : EthLib.Cryptography.Bls.Fp → EthLib.Cryptography.Bls.Fp)
+    (hcn : ∀ n : Fp, n.Canonical → (cn n).Canonical ∧ (cn n).val = cn' n.val)
+    (gn : Fp2 → Fp → Fp2) (gn' : EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp → EthLib.Cryptography.Bls.Fp2)
+    (hgn : ∀ (a : Fp2) (t : Fp), a.Canonical → t.Canonical →
+      (gn a t).Canonical ∧ (gn a t).toSpec = gn' a.toSpec t.val)
     {u zu2 denom di : Fp2} (hu : u.Canonical) (hz : zu2.Canonical) (hd : denom.Canonical)
     (hi : di.Canonical) :
-    PRel (swuG x1e nBA A B sq sgn u zu2 denom di)
-      (swuG' x1e' nBA' A' B' sq' sgn' u.toSpec zu2.toSpec denom.toSpec di.toSpec) := by
+    PRel (swuG x1e nBA A B s slow sgn cn gn u zu2 denom di)
+      (swuG' x1e' nBA' A' B' s' slow' sgn' cn' gn' u.toSpec zu2.toSpec denom.toSpec di.toSpec) := by
   unfold swuG swuG'
   dsimp only
   rw [Fp2.isZero_eq hd]
@@ -474,56 +647,65 @@ theorem swuG_spec (x1e nBA A B : Fp2) (x1e' nBA' A' B' : EthLib.Cryptography.Bls
       rw [Fp2.toSpec_hMul hn h1, Fp2.toSpec_hAdd Fp2.one_canonical hi, Fp2.toSpec_one, hnv]
   obtain ⟨hx1c, hx1v⟩ := hx1
   generalize (if denom.isZero = true then x1e else nBA * (Fp2.one + di)) = x1 at hx1c hx1v ⊢
-  generalize (if denom.isZero = true then x1e' else nBA' * (EthLib.Cryptography.Bls.Fp2.one + di.toSpec)) = x1' at hx1v ⊢
+  generalize (if denom.isZero = true then x1e' else nBA' * (EthLib.Cryptography.Bls.Fp2.one + di.toSpec)) = x1'
+    at hx1v ⊢
   subst hx1v
-  have hs1 := Fp2.sqr_canonical hx1c
-  have hm1 := Fp2.canonical_hMul hs1 hx1c
-  have hA1 := Fp2.canonical_hMul hA hx1c
-  have hgc : (x1.sqr * x1 + A * x1 + B).Canonical :=
-    Fp2.canonical_hAdd (Fp2.canonical_hAdd hm1 hA1) hB
-  have hgv : (x1.sqr * x1 + A * x1 + B).toSpec =
-      x1.toSpec * x1.toSpec * x1.toSpec + A' * x1.toSpec + B' := by
-    rw [Fp2.toSpec_hAdd (Fp2.canonical_hAdd hm1 hA1) hB, Fp2.toSpec_hAdd hm1 hA1,
-      Fp2.toSpec_hMul hs1 hx1c, Fp2.toSpec_sqr hx1c, Fp2.toSpec_hMul hA hx1c, hAv, hBv]
+  obtain ⟨hgc, hgv⟩ := gx_spec hx1c hA hAv hB hBv
   rw [← hgv]
   generalize x1.sqr * x1 + A * x1 + B = G at hgc ⊢
-  obtain ⟨hsm, hsc⟩ := hsq G hgc
-  rw [← hsm]
-  rcases hs : sq G with e | y
-  · simp only [Except.map, match_error, match_error']
-    have hx2c : (zu2 * x1).Canonical := Fp2.canonical_hMul hz hx1c
-    have hx2v : (zu2 * x1).toSpec = zu2.toSpec * x1.toSpec := Fp2.toSpec_hMul hz hx1c
-    rw [← hx2v]
-    generalize zu2 * x1 = x2 at hx2c hx2v ⊢
-    have hs2 := Fp2.sqr_canonical hx2c
-    have hm2 := Fp2.canonical_hMul hs2 hx2c
-    have hA2 := Fp2.canonical_hMul hA hx2c
-    have hgc2 : (x2.sqr * x2 + A * x2 + B).Canonical :=
-      Fp2.canonical_hAdd (Fp2.canonical_hAdd hm2 hA2) hB
-    have hgv2 : (x2.sqr * x2 + A * x2 + B).toSpec =
-        x2.toSpec * x2.toSpec * x2.toSpec + A' * x2.toSpec + B' := by
-      rw [Fp2.toSpec_hAdd (Fp2.canonical_hAdd hm2 hA2) hB, Fp2.toSpec_hAdd hm2 hA2,
-        Fp2.toSpec_hMul hs2 hx2c, Fp2.toSpec_sqr hx2c, Fp2.toSpec_hMul hA hx2c, hAv, hBv]
-    rw [← hgv2]
-    generalize x2.sqr * x2 + A * x2 + B = G2 at hgc2 ⊢
-    obtain ⟨hsm2, hsc2⟩ := hsq G2 hgc2
-    rw [← hsm2]
-    rcases hs2' : sq G2 with e2 | y2
-    · simp only [Except.map, match_error, match_error', Mirror.HashToCurve.panicWPD_eq]
-      exact hdef
-    · have hyc2 := hsc2 y2 hs2'
-      simp only [Except.map, match_ok, match_ok']
-      obtain ⟨c, v⟩ := sel_neg hsgn hu hyc2
-      refine ⟨hx2c, c, ?_⟩
-      show (x2.toSpec, _) = (x2.toSpec, _)
+  have hcz : G.toSpec.c1.isZero = G.c1.isZero := (Fp2.fp_isZero_eq hgc.2).symm
+  rw [hcz]
+  by_cases hb : (G.c1.isZero || denom.isZero) = true
+  · rw [if_pos hb, if_pos hb]
+    exact hslow hu hz hx1c hgc
+  · rw [if_neg hb, if_neg hb]
+    obtain ⟨hn1c, hn1v⟩ := norm_spec hgc.1 hgc.2
+    rw [show G.toSpec.c0 = G.c0.val from rfl, show G.toSpec.c1 = G.c1.val from rfl, ← hn1v]
+    obtain ⟨hcc, hcv⟩ := hcn _ hn1c
+    rw [← hcv]
+    generalize G.c0 * G.c0 + G.c1 * G.c1 = n1 at hn1c hcc ⊢
+    generalize cn n1 = c at hcc ⊢
+    have hbq : (c * c).beq n1 = EthLib.Cryptography.Bls.Fp.beq (c.val * c.val) n1.val := by
+      have hcm : (c * c).Canonical := G1.mul_c hcc
+      have hcmv : (c * c).val = c.val * c.val := G1.mul_v hcc
+      rw [G1.beq_eq hcm hn1c, hcmv]
+    rw [← hbq]
+    by_cases hb2 : (c * c).beq n1 = true
+    · rw [if_pos hb2, if_pos hb2]
+      obtain ⟨hyc, hyv⟩ := hgn G c hgc hcc
+      rw [← hyv]
+      generalize gn G c = y at hyc ⊢
+      obtain ⟨c', v⟩ := sel_neg hsgn hu hyc
+      refine ⟨hx1c, c', ?_⟩
+      show (x1.toSpec, _) = (x1.toSpec, _)
       rw [v]
-  · have hyc := hsc y hs
-    simp only [Except.map, match_ok, match_ok']
-    obtain ⟨c, v⟩ := sel_neg hsgn hu hyc
-    refine ⟨hx1c, c, ?_⟩
-    show (x1.toSpec, _) = (x1.toSpec, _)
-    rw [v]
-
+    · rw [if_neg hb2, if_neg hb2]
+      have hx2c : (zu2 * x1).Canonical := Fp2.canonical_hMul hz hx1c
+      have hx2v : (zu2 * x1).toSpec = zu2.toSpec * x1.toSpec := Fp2.toSpec_hMul hz hx1c
+      rw [← hx2v]
+      generalize zu2 * x1 = x2 at hx2c hx2v ⊢
+      obtain ⟨hgc2, hgv2⟩ := gx_spec hx2c hA hAv hB hBv
+      rw [← hgv2]
+      generalize x2.sqr * x2 + A * x2 + B = G2 at hgc2 ⊢
+      have hcz2 : G2.toSpec.c1.isZero = G2.c1.isZero := (Fp2.fp_isZero_eq hgc2.2).symm
+      rw [hcz2]
+      by_cases hb3 : G2.c1.isZero = true
+      · rw [if_pos hb3, if_pos hb3]
+        exact hslow hu hz hx1c hgc
+      · rw [if_neg hb3, if_neg hb3]
+        obtain ⟨hnuc, hnuv⟩ := norm_spec hu.1 hu.2
+        rw [show u.toSpec.c0 = u.c0.val from rfl, show u.toSpec.c1 = u.c1.val from rfl, ← hnuv]
+        generalize u.c0 * u.c0 + u.c1 * u.c1 = nu at hnuc ⊢
+        obtain ⟨hTc, hTv⟩ := t_spec hnuc hcc
+        rw [← hsv, ← hTv]
+        generalize s * (nu * nu * nu) * c = T at hTc ⊢
+        obtain ⟨hyc, hyv⟩ := hgn G2 T hgc2 hTc
+        rw [← hyv]
+        generalize gn G2 T = y at hyc ⊢
+        obtain ⟨c', v⟩ := sel_neg hsgn hu hyc
+        refine ⟨hx2c, c', ?_⟩
+        show (x2.toSpec, _) = (x2.toSpec, _)
+        rw [v]
 
 end EthLibImpl.Cryptography.Bls.HashToCurve
 
@@ -537,7 +719,15 @@ set_option maxRecDepth 100000 in
 /-- The mirror's SSWU is the parametrised one. -/
 theorem mirror_swu_eq_G : Mirror.HashToCurve.simpleSwuWith =
     HashToCurve.swuG' Mirror.HashToCurve.x1Exceptional Mirror.HashToCurve.negBOverA Aprime Bprime
-      EthLib.Cryptography.Bls.Fp2.sqrtAlt sgn0Fp2 := rfl
+      Mirror.HashToCurve.s125 Mirror.HashToCurve.simpleSwuSlow sgn0Fp2
+      (fun n => EthLib.Cryptography.Bls.Fp.powNat n ((EthLib.Cryptography.Bls.Fp.modulus + 1) / 4))
+      Mirror.HashToCurve.sqrtGivenNorm := rfl
+
+theorem mirror_slow_eq_G : Mirror.HashToCurve.simpleSwuSlow =
+    HashToCurve.swuSlowG' Aprime Bprime EthLib.Cryptography.Bls.Fp2.sqrtAlt sgn0Fp2 := rfl
+
+theorem s125_spec : HashToCurve.s125.Canonical ∧ HashToCurve.s125.val = Mirror.HashToCurve.s125 :=
+  ⟨Fp.ofNat_canonical _, Fp.val_ofNat _⟩
 
 end EthLibImpl.Cryptography.Bls.HashConst
 
@@ -560,6 +750,24 @@ theorem default_spec : (default : Fp2 × Fp2).1.Canonical ∧ (default : Fp2 × 
   show _ = ((default : EthLib.Cryptography.Bls.Fp2), (default : EthLib.Cryptography.Bls.Fp2))
   rw [d2]
 
+theorem swuPanic_spec : PRel swuPanic Mirror.HashToCurve.swuPanic := by
+  have h1 : swuPanic = default := rfl
+  have h2 : Mirror.HashToCurve.swuPanic = default := rfl
+  rw [h1, h2]
+  exact default_spec
+
+/-- The slow path computes the mirror's, with `Fp2.sqrt` as the mirror's `sqrtAlt`. -/
+theorem swuSlow_spec' {u zu2 x1 gx1 : Fp2} (hu : u.Canonical) (hz : zu2.Canonical)
+    (hx : x1.Canonical) (hg : gx1.Canonical) :
+    PRel (simpleSwuSlow u zu2 x1 gx1)
+      (Mirror.HashToCurve.simpleSwuSlow u.toSpec zu2.toSpec x1.toSpec gx1.toSpec) := by
+  rw [simpleSwuSlow_eq_G, HashConst.mirror_slow_eq_G]
+  obtain ⟨hA, vA⟩ := HashConst.Aprime_spec
+  obtain ⟨hB, vB⟩ := HashConst.Bprime_spec
+  exact swuSlowG_spec _ _ _ _ hA vA hB vB Fp2.sqrt
+    EthLib.Cryptography.Bls.Fp2.sqrtAlt (fun a ha => Fp2.sqrt_spec ha) _ _
+    (fun y hy => HashConst.sgn0Fp2_spec hy) swuPanic_spec hu hz hx hg
+
 /-- `simpleSwuWith` computes the mirror's. -/
 theorem simpleSwuWith_spec {u zu2 denom di : Fp2} (hu : u.Canonical) (hz : zu2.Canonical)
     (hd : denom.Canonical) (hi : di.Canonical) :
@@ -570,9 +778,11 @@ theorem simpleSwuWith_spec {u zu2 denom di : Fp2} (hu : u.Canonical) (hz : zu2.C
   obtain ⟨hn, vn⟩ := negBOverA_spec
   obtain ⟨hA, vA⟩ := HashConst.Aprime_spec
   obtain ⟨hB, vB⟩ := HashConst.Bprime_spec
-  exact swuG_spec _ _ _ _ _ _ _ _ hx vx hn vn hA vA hB vB Fp2.sqrt
-    EthLib.Cryptography.Bls.Fp2.sqrtAlt (fun a ha => Fp2.sqrt_spec ha) _ _
-    (fun y hy => HashConst.sgn0Fp2_spec hy) default_spec hu hz hd hi
+  obtain ⟨_, vs⟩ := HashConst.s125_spec
+  exact swuG_spec _ _ _ _ _ _ _ _ _ _ hx vx hn vn hA vA hB vB vs _ _ (fun hu hz hx hg => swuSlow_spec' hu hz hx hg)
+    _ _ (fun y hy => HashConst.sgn0Fp2_spec hy) _ _
+    (fun n hn => ⟨Fp.powNibbles_canonical hn _, Fp.val_powNibbles_powNat hn _⟩) _ _
+    (fun a t ha ht => Fp2.sqrtGivenNorm_spec ha ht) hu hz hd hi
 
 
 /-! ## The isogeny -/
