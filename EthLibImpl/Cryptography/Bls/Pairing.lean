@@ -22,9 +22,10 @@ fast implementations do:
   the spec's `inverse 0 = 0` makes the slope `0`. The step functions
   branch on exactly that case and compute the spec's resulting point and
   line, so no input is excluded.
-* **Final exponentiation** computes exactly `f^((p¹² − 1)/r)`:
-  `(p¹² − 1)/r = (p⁶ − 1)(p² + 1)·h` with
-  `h = λ·(x + p)(x² + p² − 1) + 1` and `λ = (x − 1)²/3 = ((|x|+1)/3)(|x|+1)`.
+* **Final exponentiation** computes exactly the cube `f^(3·(p¹² − 1)/r)`
+  of the spec's value: `(p¹² − 1)/r = (p⁶ − 1)(p² + 1)·h` and
+  `3h = (x − 1)²(x + p)(x² + p² − 1) + 3`. The check only compares the
+  result with one, which the cube preserves (see `finalExpCube`).
   The first two factors use conjugation (`a^(p⁶)`) and `frobenius2`. Their
   result lies in the cyclotomic subgroup, where `cycSqr` squares and
   conjugation inverts.
@@ -164,22 +165,26 @@ def cycPowMsb (g : Fp12) (k : UInt64) : Nat → Fp12 → Fp12
 /-- `g^|x|`. -/
 def cycPowAbsX (g : Fp12) : Fp12 := cycPowMsb g blsXWord 63 g
 
-/-- `(|x| + 1) / 3`. -/
-def lamFactor : UInt64 := 0x460055555555aaab
-
-/-- Exactly `f^((p¹² − 1) / r)`. -/
-def finalExponentiation (f : Fp12) : Fp12 :=
+/-- Exactly `f^(3·(p¹² − 1)/r)`, the cube of the spec's final
+exponentiation. Since `3·(p⁴ − p² + 1)/r = (x − 1)²(x + p)(x² + p² − 1) + 3`
+(Hayashida–Hayasaka–Teruya), the hard part needs only ladders in
+`|x| + 1` and `|x|` (Hamming weights 7 and 6). The exact exponent
+`(p⁴ − p² + 1)/r` needs the factor `(|x| + 1)/3`, whose 28 set bits cost
+27 more `Fp12` products. The pairing check only asks whether the result is
+one, and cubing preserves that on the `r`-th roots of unity, where the
+final exponentiation lands (`3` is prime to `r`). -/
+def finalExpCube (f : Fp12) : Fp12 :=
   -- Easy part: `g = f^((p⁶ − 1)(p² + 1))`.
   let f1 := f.conj * f.inverse
   let g := f1.frobenius2 * f1
-  -- `a = g^λ`, `λ = ((|x|+1)/3)·(|x|+1)`.
-  let a0 := cycPowMsb g lamFactor 62 g
+  -- `a = g^((x − 1)²) = g^((|x| + 1)²)`.
+  let a0 := cycPowAbsX g * g
   let a := cycPowAbsX a0 * a0
   -- `b = a^(x + p)`, with `a^x = conj(a^|x|)`.
   let b := (cycPowAbsX a).conj * a.frobenius1
   -- `c = b^(x² + p² − 1)`.
   let c := cycPowAbsX (cycPowAbsX b) * b.frobenius2 * b.conj
-  c * g
+  c * (g.cycSqr * g)
 
 /-! ## The pairing -/
 
@@ -187,6 +192,6 @@ def finalExponentiation (f : Fp12) : Fp12 :=
 def pairingCheck (pairs : Array (G1 × G2)) : Bool :=
   let pis := pairs.toList.filterMap fun (p, q) =>
     if p.isInfinity || q.isInfinity then none else some (PairInput.ofPoints p q)
-  (finalExponentiation (millerLoop pis).conj).isOne
+  (finalExpCube (millerLoop pis).conj).isOne
 
 end EthLibImpl.Cryptography.Bls

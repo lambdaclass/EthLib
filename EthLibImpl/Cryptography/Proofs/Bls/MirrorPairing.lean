@@ -171,23 +171,20 @@ def cycPowMsb (g : Fp12) (k : Nat) : Nat → Fp12 → Fp12
 
 def cycPowAbsX (g : Fp12) : Fp12 := cycPowMsb g blsX 63 g
 
-/-- `(|x| + 1) / 3`. -/
-def lamFactor : Nat := 0x460055555555aaab
-
-/-- The implementation's `finalExponentiation`. -/
-def finalExponentiation (f : Fp12) : Fp12 :=
+/-- The implementation's `finalExpCube`. -/
+def finalExpCube (f : Fp12) : Fp12 :=
   let f1 := f.conjugate * f.inverse
   let g := frobenius2 f1 * f1
-  let a0 := cycPowMsb g lamFactor 62 g
+  let a0 := cycPowAbsX g * g
   let a := cycPowAbsX a0 * a0
   let b := (cycPowAbsX a).conjugate * frobenius1 a
   let c := cycPowAbsX (cycPowAbsX b) * frobenius2 b * b.conjugate
-  c * g
+  c * (cycSqr g * g)
 
 /-- The implementation's `pairingCheck`. -/
 def pairingCheck (pairs : Array (G1 × G2)) : Bool :=
   let pis := pairs.toList.filterMap fun (p, q) =>
     if p.isInfinity || q.isInfinity then none else some (PairInput.ofPoints p q)
-  (finalExponentiation (millerLoop pis).conjugate).isOne
+  (finalExpCube (millerLoop pis).conjugate).isOne
 
 end EthLibImpl.Cryptography.Bls.Mirror

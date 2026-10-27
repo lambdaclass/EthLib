@@ -1,10 +1,10 @@
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp12
 
 /-!
-# Proofs: the implementation's final exponentiation is exact
+# Proofs: the implementation's final exponentiation is the spec's cube
 
-`Mirror.finalExponentiation f = EthLib.Cryptography.Bls.finalExponentiation f`
-for every `f : Fp12` (`Mirror.finalExponentiation_eq`), where the spec raises
+`Mirror.finalExpCube f = (EthLib.Cryptography.Bls.finalExponentiation f) ^ 3`
+for every `f : Fp12` (`Mirror.finalExpCube_eq`), where the spec raises
 `f` to `E = (p¹² - 1)/r` by square-and-multiply and the implementation
 (mirrored over spec types in `MirrorPairing`) runs the easy part, then the
 hard part with Granger–Scott cyclotomic squarings and ladders in `|x|`.
@@ -155,14 +155,6 @@ theorem cycPowAbsX_eq {h : Fp12} (hh : h ^ (Fp.modulus ^ 4 - Fp.modulus ^ 2 + 1)
   rw [cycPowAbsX, this]
   congr 1
 
-theorem cycPowMsb_lamFactor {h : Fp12}
-    (hh : h ^ (Fp.modulus ^ 4 - Fp.modulus ^ 2 + 1) = 1) :
-    cycPowMsb h lamFactor 62 h = h ^ lamFactor := by
-  have := cycPowMsb_pow hh lamFactor 62 1
-  rw [pow_one] at this
-  rw [this]
-  congr 1
-
 theorem cycPowMsb_zero (k : ℕ) : ∀ n, cycPowMsb 0 k n 0 = 0
   | 0 => rfl
   | n + 1 => by
@@ -171,22 +163,23 @@ theorem cycPowMsb_zero (k : ℕ) : ∀ n, cycPowMsb 0 k n 0 = 0
 
 /-! ## The final exponentiation -/
 
-theorem finalExponentiation_zero : finalExponentiation 0 = 0 := by
+theorem finalExpCube_zero : finalExpCube 0 = 0 := by
   have hc : Fp12.conjugate 0 = 0 := by rw [conjugate_eq_pow, zero_pow (pow_pos Fp.modulus_pos _).ne']
   have hf1 : frobenius1 0 = 0 := by rw [frobenius1_eq, zero_pow (by decide)]
   have hf2 : frobenius2 0 = 0 := by rw [frobenius2_eq, zero_pow (pow_pos Fp.modulus_pos _).ne']
   have hi : Fp12.inverse 0 = 0 := by rw [Fp12.inverse_eq_inv, inv_zero]
   have hx : cycPowAbsX 0 = 0 := cycPowMsb_zero blsX 63
-  simp only [finalExponentiation, hc, hi, mul_zero, hf2, cycPowMsb_zero, hx, hf1]
+  have hs : cycSqr (0 : Fp12) = 0 := cycSqr_zero
+  simp only [finalExpCube, hc, hi, mul_zero, hf2, hx, hf1, hs]
 
-/-- The implementation's final exponentiation computes the spec's
+/-- The implementation's final exponentiation computes the cube of the spec's
 `f ^ ((p¹² - 1)/r)` for every `f`. -/
-theorem finalExponentiation_eq (f : Fp12) :
-    finalExponentiation f = EthLib.Cryptography.Bls.finalExponentiation f := by
+theorem finalExpCube_eq (f : Fp12) :
+    finalExpCube f = (EthLib.Cryptography.Bls.finalExponentiation f) ^ 3 := by
   rw [EthLib.Cryptography.Bls.finalExponentiation, Fp12.powNat_eq_pow]
   by_cases hf : f = 0
   · subst hf
-    rw [finalExponentiation_zero, zero_pow (by decide)]
+    rw [finalExpCube_zero, zero_pow (by decide), zero_pow (by decide)]
   -- The easy part: `f1 = f^(p⁶ - 1)` has `f1^(p⁶ + 1) = 1`.
   have hcf : f.conjugate ≠ 0 := by
     rw [conjugate_eq_pow]
@@ -208,7 +201,8 @@ theorem finalExponentiation_eq (f : Fp12) :
   have hpc : ∀ m, (g ^ m) ^ (Fp.modulus ^ 4 - Fp.modulus ^ 2 + 1) = 1 := fun m => by
     rw [← pow_mul, mul_comm, pow_mul, hgc, one_pow]
   -- The hard part, as powers of `g`.
-  have hA0 : cycPowMsb g lamFactor 62 g = g ^ lamFactor := cycPowMsb_lamFactor hgc
+  have hA0 : cycPowAbsX g * g = g ^ (blsX + 1) := by rw [cycPowAbsX_eq hgc, ← pow_succ]
+  have hS : cycSqr g * g = g ^ 3 := by rw [cycSqr_eq hgc]; ring
   have hX : ∀ m, cycPowAbsX (g ^ m) = g ^ (m * blsX) := fun m => by
     rw [cycPowAbsX_eq (hpc m), ← pow_mul]
   have hC : ∀ m, (g ^ m).conjugate = g ^ (m * Fp.modulus ^ 6) := fun m => by
@@ -217,10 +211,10 @@ theorem finalExponentiation_eq (f : Fp12) :
     rw [frobenius1_eq, ← pow_mul]
   have hF2 : ∀ m, frobenius2 (g ^ m) = g ^ (m * Fp.modulus ^ 2) := fun m => by
     rw [frobenius2_eq, ← pow_mul]
-  simp only [finalExponentiation, hG, hA0, hX, hC, hF1, hF2, ← pow_add, ← pow_succ]
+  simp only [finalExpCube, hG, hA0, hS, hX, hC, hF1, hF2, ← pow_add]
   rw [show finalExpExponent = (Fp.modulus ^ 6 - 1) * (Fp.modulus ^ 2 + 1)
       * ((Fp.modulus ^ 4 - Fp.modulus ^ 2 + 1) / Fr.modulus) by decide,
-    pow_mul, hgf, pow_eq_pow_mod _ hgc]
+    pow_mul, hgf, ← pow_mul, pow_eq_pow_mod _ hgc]
   conv_rhs => rw [pow_eq_pow_mod _ hgc]
   congr 1
 

@@ -278,9 +278,9 @@ def pairingTests (v : Vectors) : IO Unit := do
   let mut okFe := true
   for _ in [0:2] do
     let (f, g') := g.fp12; g := g'
-    okFe := okFe && (toS12 (EthLibImpl.Cryptography.Bls.finalExponentiation f)).beq
-      (EthLib.Cryptography.Bls.finalExponentiation (toS12 f))
-  report "finalExponentiation = f^((p^12-1)/r)" okFe
+    let e := EthLib.Cryptography.Bls.finalExponentiation (toS12 f)
+    okFe := okFe && (toS12 (EthLibImpl.Cryptography.Bls.finalExpCube f)).beq (e * e * e)
+  report "finalExpCube = (f^((p^12-1)/r))^3" okFe
   let _ := v
 
 def sigTests (v : Vectors) : IO Unit := do
@@ -436,7 +436,7 @@ def bench (v : Vectors) (ops : List String) : IO Unit := do
       sink.modify (· + (millerLoop (← pisr.get)).c0.c0.a0)
   if want "final_exp" then
     timeOp "final_exp" 200000000 1 fun _ => do
-      sink.modify (· + (finalExponentiation (← f12r.get)).c0.c0.a0)
+      sink.modify (· + (finalExpCube (← f12r.get)).c0.c0.a0)
   if want "pairing_check_2" then
     let pairs := #[(G1.generator, G2.generator), (G1.generator.neg, G2.generator)]
     let pr ← IO.mkRef pairs

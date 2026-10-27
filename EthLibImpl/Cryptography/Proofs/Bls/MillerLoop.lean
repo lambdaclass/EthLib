@@ -42,7 +42,7 @@ final exponentiation erases it.
   (`pairingCheck_eq_foldl`) multiplying the conjugated Miller values of the
   pairs with no point at infinity (`foldl_pairingStep`), the mirror filters
   the same pairs, conjugation is multiplicative, and
-  `Mirror.finalExponentiation_eq` plus `(x · k) ^ E = x ^ E` for killed `k`
+  `Mirror.finalExpCube_eq` (the cube), `isOne_cube` and `(x · k) ^ E = x ^ E` for killed `k`
   finish.
 -/
 
@@ -778,6 +778,40 @@ theorem millerLoop_rel (l : List (G1 × G2)) :
     exact List.map_congr_left fun pq _ => run_initState pq
   rw [millerLoop, Fp12.one_def, h, e]
 
+theorem isOne_iff (a : Fp12) : a.isOne = true ↔ a = 1 := by
+  rw [← Fp12.one_def]
+  obtain ⟨⟨⟨a0, a1⟩, ⟨a2, a3⟩, ⟨a4, a5⟩⟩, ⟨⟨b0, b1⟩, ⟨b2, b3⟩, ⟨b4, b5⟩⟩⟩ := a
+  simp only [Fp12.isOne, Fp12.one, Fp6.beq, Fp6.isZero, Fp2.beq, Fp2.isZero, Fp.beq, Fp.isZero,
+    Fp6.one, Fp6.zero, Fp2.one, Fp2.zero, Fp.one, Fp.zero, Bool.and_eq_true, beq_iff_eq,
+    Fp12.mk.injEq, Fp6.mk.injEq, Fp2.mk.injEq, Fin.ext_iff, and_assoc]
+
+theorem pow_card12 (a : Fp12) : a ^ (Fp.modulus ^ 12) = a := by
+  rw [show Fp.modulus ^ 12 = Fp.modulus ^ 6 * Fp.modulus ^ 6 by ring, pow_mul,
+    ← Fp12.conjugate_eq_pow, ← Fp12.conjugate_eq_pow, Fp12.conjugate_conjugate]
+
+/-- The cube of a final-exponentiation value is one exactly when the value is
+(it lies in the `r`-th roots of unity, and `3` is prime to `r`). -/
+theorem isOne_cube (f : Fp12) :
+    ((finalExponentiation f) ^ 3).isOne = (finalExponentiation f).isOne := by
+  rw [Bool.eq_iff_iff, isOne_iff, isOne_iff]
+  refine ⟨fun h3 => ?_, fun h1 => by rw [h1, one_pow]⟩
+  by_cases hf : f = 0
+  · subst hf
+    rw [finalExponentiation, Fp12.powNat_eq_pow, zero_pow (by decide), zero_pow (by decide)] at h3
+    exact absurd h3 zero_ne_one
+  have hy : (finalExponentiation f) ^ Fr.modulus = 1 := by
+    rw [finalExponentiation, Fp12.powNat_eq_pow, ← pow_mul,
+      show finalExpExponent * Fr.modulus = Fp.modulus ^ 12 - 1 by decide,
+      pow_sub₀ f hf (Nat.one_le_pow _ _ Fp.modulus_pos), pow_one, pow_card12,
+      mul_inv_cancel₀ hf]
+  obtain ⟨a, b, hab⟩ : ∃ a b : Nat, a * Fr.modulus = 3 * b + 1 := by
+    exact ⟨1, Fr.modulus / 3, by decide⟩
+  generalize finalExponentiation f = y at hy h3
+  generalize Fr.modulus = n at hy hab
+  have h1 : y ^ (a * n) = 1 := by rw [mul_comm, pow_mul, hy, one_pow]
+  rw [hab, pow_succ, pow_mul, h3, one_pow, one_mul] at h1
+  exact h1
+
 /-- The implementation's pairing check (mirrored over spec types) returns
 the spec's `pairingCheck` on every input. -/
 theorem pairingCheck_eq (pairs : Array (G1 × G2)) :
@@ -788,8 +822,9 @@ theorem pairingCheck_eq (pairs : Array (G1 × G2)) :
   obtain ⟨k, hk, h⟩ := millerLoop_rel pairs.toList
   dsimp only
   rw [h]
+  rw [finalExpCube_eq, isOne_cube]
   apply congrArg Fp12.isOne
-  rw [finalExponentiation_eq, EthLib.Cryptography.Bls.finalExponentiation,
+  rw [EthLib.Cryptography.Bls.finalExponentiation,
     EthLib.Cryptography.Bls.finalExponentiation, Fp12.powNat_eq_pow, Fp12.powNat_eq_pow,
     Fp12.conjugate_mul, Fp12.conjugate_list_prod, List.map_map, mul_pow]
   have hk' : k.conjugate ^ finalExpExponent = 1 := by

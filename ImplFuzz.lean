@@ -742,8 +742,8 @@ def pairingTarget (c : Ctx) (g : Rng) (iter : Nat) : IO Unit := do
     let (m, g) := g.mode
     let (f, _) := g.fp12M m
     let inp := fun _ => s!"f={hI12 f}"
-    c.fp12 "finalExponentiation" inp (EthLibImpl.Cryptography.Bls.finalExponentiation f)
-      (EthLib.Cryptography.Bls.finalExponentiation (toS12 f))
+    let e := EthLib.Cryptography.Bls.finalExponentiation (toS12 f)
+    c.fp12 "finalExpCube" inp (EthLibImpl.Cryptography.Bls.finalExpCube f) (e * e * e)
   else
     let (kind, g) := g.below 4
     let (pairs, g) : Array (IG1 × IG2) × Rng :=
