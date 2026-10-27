@@ -1,5 +1,6 @@
 import EthLibImpl.Cryptography.Proofs.Bls.CompressG1
 import EthLibImpl.Cryptography.Proofs.Bls.CompressG2
+import EthLibImpl.Cryptography.Proofs.Bls.EigenTorsion
 import EthLibImpl.Cryptography.Proofs.Bls.Equivalence
 import EthLibImpl.Cryptography.Proofs.Bls.FinalExp
 import EthLibImpl.Cryptography.Proofs.Bls.Fp
@@ -12,6 +13,9 @@ import EthLibImpl.Cryptography.Proofs.Bls.G2
 import EthLibImpl.Cryptography.Proofs.Bls.G2Check
 import EthLibImpl.Cryptography.Proofs.Bls.G2Defs
 import EthLibImpl.Cryptography.Proofs.Bls.G2Group
+import EthLibImpl.Cryptography.Proofs.Bls.G2Order
+import EthLibImpl.Cryptography.Proofs.Bls.G2Psi
+import EthLibImpl.Cryptography.Proofs.Bls.G2Subgroup
 import EthLibImpl.Cryptography.Proofs.Bls.HashImpl
 import EthLibImpl.Cryptography.Proofs.Bls.HashMath
 import EthLibImpl.Cryptography.Proofs.Bls.Limbs

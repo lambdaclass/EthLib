@@ -1,5 +1,5 @@
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorSig
-import EthLibImpl.Cryptography.Proofs.Bls.G2Check
+import EthLibImpl.Cryptography.Proofs.Bls.G2Subgroup
 import EthLibImpl.Cryptography.Proofs.Bls.G1Endo
 import EthLib.Cryptography.Proofs.Bls.Compress
 import EthLib.Cryptography.Proofs.Bls.G1Group

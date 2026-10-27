@@ -6,16 +6,13 @@ import EthLibImpl.Cryptography.Proofs.Bls.G2Group
 /-!
 # Proofs: the implementation's `G2` subgroup check
 
-The implementation decides `G2` subgroup membership with
-`[x⁴]Q + Q = [x²]Q` (mirrored over spec types as
-`EthLibImpl.Cryptography.Bls.Mirror.G2.inSubgroup`), where the spec's
-`G2.inSubgroup` tests `[r]Q = O`. On curve points the two agree:
-`r = x⁴ - x² + 1`.
+The ladder and equality-test lemmas behind the implementation's `G2`
+subgroup check (mirrored as `Mirror.G2.inSubgroup`; its correctness
+theorem `inSubgroup_eq` is in `G2Subgroup`).
 
 * `isInfinity_iff`, `eqProj_iff`: the Boolean tests decide equality in the group.
 * `toPoint_mulMsb`, `toPoint_mulAbsX`: the MSB-first ladder computes
   `[2ⁿ]acc + [k mod 2ⁿ]P`, so `mulAbsX` multiplies by `|x|`.
-* `inSubgroup_eq`: the main theorem.
 * `valid_of_uncompress`: a successful `G2.uncompress` yields a curve point.
 -/
 
@@ -120,38 +117,6 @@ theorem toPoint_mulAbsX {P : G2} (hP : Valid P) :
     toPoint (mulAbsX P) = 0xd201000000010000 • toPoint P := by
   rw [mulAbsX, toPoint_mulMsb hP hP, ← add_nsmul]
   rfl
-
-/-- `r = x⁴ - x² + 1`, with `x = 0xd201000000010000`, as a relation in `ℕ`. -/
-private theorem modulus_rel :
-    Fr.modulus + 0xd201000000010000 * 0xd201000000010000
-      = 0xd201000000010000 * 0xd201000000010000 * 0xd201000000010000
-          * 0xd201000000010000 + 1 := by
-  decide
-
-/-- The subgroup test of the implementation decides the spec's `[r]Q = O`. -/
-theorem inSubgroup_eq {P : G2} (h : Valid P) : inSubgroup P = EthLib.Cryptography.Bls.G2.inSubgroup P := by
-  by_cases hinf : P.isInfinity = true
-  · rw [inSubgroup, EthLib.Cryptography.Bls.G2.inSubgroup, if_pos hinf, if_pos hinf]
-  · rw [inSubgroup, EthLib.Cryptography.Bls.G2.inSubgroup, if_neg hinf, if_neg hinf]
-    dsimp only
-    have hx2 := valid_mulAbsX (valid_mulAbsX h)
-    have hx4 := valid_mulAbsX (valid_mulAbsX hx2)
-    rw [Bool.eq_iff_iff, eqProj_iff (valid_add hx4 h) hx2,
-      isInfinity_iff (valid_mulNat h _), toPoint_mulNat h, toPoint_add hx4 h,
-      toPoint_mulAbsX (valid_mulAbsX hx2), toPoint_mulAbsX hx2,
-      toPoint_mulAbsX (valid_mulAbsX h), toPoint_mulAbsX h, smul_smul, smul_smul, smul_smul,
-      smul_smul]
-    generalize toPoint P = Q
-    have key : Fr.modulus • Q + (0xd201000000010000 * 0xd201000000010000) • Q
-        = (0xd201000000010000 * 0xd201000000010000 * 0xd201000000010000
-          * 0xd201000000010000) • Q + Q := by
-      rw [← add_nsmul, modulus_rel, add_nsmul, one_nsmul]
-    constructor
-    · intro hQ
-      exact add_eq_right.mp (key.trans hQ)
-    · intro hQ
-      rw [hQ, zero_add] at key
-      exact key.symm
 
 end EthLibImpl.Cryptography.Bls.Mirror.G2
 
