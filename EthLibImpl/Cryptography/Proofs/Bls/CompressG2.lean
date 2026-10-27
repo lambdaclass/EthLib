@@ -11,7 +11,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.SpecFp2
 (namespace `G2` of `Bls/Compress.lean`). `uncompress` uses `Fp2.sqrt`, which may return the
 other root than the spec's, and both then fix the sign with `Fp2.signBit`, so the results agree
 (`signBit_normalize`). `inSubgroup` is compared with the spec-level mirror
-`Mirror.G2.inSubgroup` (equal to the spec's on valid points by `Mirror.G2.inSubgroup_eq`).
+`Mirror.G2.inSubgroup` (equal to the spec's on valid points by `Mirror.G2.inSubgroup_eq`, in `G2Subgroup`).
 -/
 
 attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
@@ -238,6 +238,32 @@ theorem uncompress_spec (b : ByteArray) :
     (fun b => ⟨Fp.fromBytesBE_map_val b, fun c h => Fp.fromBytesBE_ok_canonical h⟩)
     (fun a ha => Fp2.sqrt_spec ha) b
 
+theorem canonical_psiC1 : psiC1.Canonical :=
+  Fp2.canonical_mk Fp.zero_canonical (Fp.ofNat_canonical _)
+
+theorem canonical_psiC2 : psiC2.Canonical :=
+  Fp2.canonical_mk (Fp.ofNat_canonical _) (Fp.ofNat_canonical _)
+
+theorem toSpec_psiC1 : Fp2.toSpec psiC1 = Mirror.G2.c1 := by
+  simp only [psiC1, Mirror.G2.c1, Fp2.toSpec_mk, Fp.val_zero, Fp.val_ofNat]
+  rfl
+
+theorem toSpec_psiC2 : Fp2.toSpec psiC2 = Mirror.G2.c2 := by
+  simp only [psiC2, Mirror.G2.c2, Fp2.toSpec_mk, Fp.val_ofNat]
+
+/-- `psiJ` computes the mirror's. -/
+theorem psiJ_spec {p : G2} (hp : Canonical p) :
+    Canonical (psiJ p) ∧ toSpec (psiJ p) = Mirror.G2.psiJ (toSpec p) := by
+  obtain ⟨hx, hy, hz⟩ := hp
+  have e : psiJ p = ⟨psiC1 * p.x.conj, psiC2 * p.y.conj, p.z.conj⟩ := rfl
+  rw [e]
+  refine ⟨canonical_mk.mpr ⟨Fp2.canonical_hMul canonical_psiC1 (Fp2.conj_canonical hx),
+    Fp2.canonical_hMul canonical_psiC2 (Fp2.conj_canonical hy), Fp2.conj_canonical hz⟩, ?_⟩
+  simp only [Mirror.G2.psiJ, toSpec_mk, toSpec_x, toSpec_y, toSpec_z,
+    Fp2.toSpec_hMul canonical_psiC1 (Fp2.conj_canonical hx),
+    Fp2.toSpec_hMul canonical_psiC2 (Fp2.conj_canonical hy), Fp2.toSpec_conj hx,
+    Fp2.toSpec_conj hy, Fp2.toSpec_conj hz, toSpec_psiC1, toSpec_psiC2]
+
 /-- The implementation's subgroup test computes the mirror's. -/
 theorem inSubgroup_spec {p : G2} (hp : Canonical p) :
     inSubgroup p = Mirror.G2.inSubgroup (toSpec p) := by
@@ -247,10 +273,8 @@ theorem inSubgroup_spec {p : G2} (hp : Canonical p) :
   · rw [if_pos h, if_pos h]
   · rw [if_neg h, if_neg h]
     obtain ⟨h1, h1s⟩ := mulAbsX_spec hp
-    obtain ⟨h2, h2s⟩ := mulAbsX_spec h1
-    obtain ⟨h3, h3s⟩ := mulAbsX_spec h2
-    obtain ⟨h4, h4s⟩ := mulAbsX_spec h3
-    obtain ⟨h5, h5s⟩ := add_spec h4 hp
-    rw [eqProj_spec h5 h2, h5s, h4s, h3s, h2s, h1s]
+    obtain ⟨h2, h2s⟩ := neg_spec h1
+    obtain ⟨h3, h3s⟩ := psiJ_spec hp
+    rw [eqProj_spec h3 h2, h3s, h2s, h1s]
 
 end EthLibImpl.Cryptography.Bls.G2

@@ -136,14 +136,23 @@ def uncompress (bytes : ByteArray) : Except BlsError G2 :=
           .ok ⟨x, y, Fp2.one⟩
       | _, _ => .error .invalidG2Point
 
-/-- Spec `G2.inSubgroup` (`[r]Q = O`), as `[x⁴]Q + Q = [x²]Q`, which is
-`[x⁴ − x² + 1]Q = O`. -/
+/-- `ψ`'s first constant `1/(1+i)^((p−1)/3)`. -/
+def psiC1 : Fp2 := Fp2.mk Fp.zero (Fp.ofNat
+  0x1a0111ea397fe699ec02408663d4de85aa0d857d89759ad4897d29650fb85f9b409427eb4f49fffd8bfd00000000aaad)
+
+/-- `ψ`'s second constant `1/(1+i)^((p−1)/2)`. -/
+def psiC2 : Fp2 := Fp2.mk
+  (Fp.ofNat 0x135203e60180a68ee2e9c448d77a2cd91c3dedd930b1cf60ef396489f61eb45e304466cf3e67fa0af1ee7b04121bdea2)
+  (Fp.ofNat 0x6af0e0437ff400b6831e36d6bd17ffe48395dabc2d3435e77f76e17009241c5ee67992f72ec05f4c81084fbede3cc09)
+
+/-- `ψ(X : Y : Z) = (c1·X̄ : c2·Ȳ : Z̄)` in Jacobian coordinates (no inversion). -/
+def psiJ (p : G2) : G2 := ⟨psiC1 * p.x.conj, psiC2 * p.y.conj, p.z.conj⟩
+
+/-- Spec `G2.inSubgroup` (`[r]Q = O`), as `ψ(Q) = [x]Q` with
+`[x]Q = −[|x|]Q` (Scott's test). -/
 def inSubgroup (p : G2) : Bool :=
   if p.isInfinity then true
-  else
-    let x2 := mulAbsX (mulAbsX p)
-    let x4 := mulAbsX (mulAbsX x2)
-    eqProj (add x4 p) x2
+  else eqProj (psiJ p) (neg (mulAbsX p))
 
 end G2
 
