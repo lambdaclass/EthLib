@@ -192,20 +192,30 @@ theorem mul_canonical {x y : Fp2} (hx : Canonical x) (hy : Canonical y) : Canoni
 theorem toSpec_mul {x y : Fp2} (hx : Canonical x) (hy : Canonical y) :
     toSpec (mul x y) = toSpec x * toSpec y := toSpec_mulI hx hy
 
-theorem sqrI_canonical {x : Fp2} (hx : Canonical x) : Canonical (sqrI x) := by
-  have ht := Fp.mulI_canonical x.c0 hx.2
-  exact ⟨Fp.mulI_canonical _ (Fp.subI_canonical hx.1 hx.2), Fp.doubleI_canonical ht⟩
+/-- An unreduced sum of canonical elements stands for their sum. -/
+theorem val_addRaw {a b : Fp} (ha : a.Canonical) (hb : b.Canonical) :
+    (Fp.addRaw a b).val = a.val + b.val := by
+  have h : a.raw + b.raw < 2 ^ 384 := by
+    have := Fp.modulus_lt_381
+    unfold Fp.Canonical at ha hb
+    omega
+  apply Fp.val_add_of
+  rw [Fp.addRaw_raw h]
+  push_cast
+  ring
+
+theorem sqrI_canonical {x : Fp2} (hx : Canonical x) : Canonical (sqrI x) :=
+  ⟨Fp.mulI_canonical _ (Fp.subI_canonical hx.1 hx.2), Fp.mulI_canonical _ hx.2⟩
 
 theorem toSpec_sqrI {x : Fp2} (hx : Canonical x) : toSpec (sqrI x) = toSpec x * toSpec x := by
   have hs := Fp.subI_canonical hx.1 hx.2
-  have ht := Fp.mulI_canonical x.c0 hx.2
   apply spec_ext
-  · show (Fp.mulI (Fp.addI x.c0 x.c1) (Fp.subI x.c0 x.c1)).val =
+  · show (Fp.mulI (Fp.addRaw x.c0 x.c1) (Fp.subI x.c0 x.c1)).val =
       x.c0.val * x.c0.val - x.c1.val * x.c1.val
-    rw [Fp.val_mulI _ hs, Fp.val_addI hx.1 hx.2, Fp.val_subI hx.1 hx.2]
+    rw [Fp.val_mulI _ hs, val_addRaw hx.1 hx.2, Fp.val_subI hx.1 hx.2]
     fp_ring
-  · show (Fp.doubleI (Fp.mulI x.c0 x.c1)).val = x.c0.val * x.c1.val + x.c1.val * x.c0.val
-    rw [Fp.val_doubleI ht, Fp.val_mulI _ hx.2]
+  · show (Fp.mulI (Fp.addRaw x.c0 x.c0) x.c1).val = x.c0.val * x.c1.val + x.c1.val * x.c0.val
+    rw [Fp.val_mulI _ hx.2, val_addRaw hx.1 hx.1]
     fp_ring
 
 theorem sqr_canonical {x : Fp2} (hx : Canonical x) : Canonical (sqr x) := sqrI_canonical hx
