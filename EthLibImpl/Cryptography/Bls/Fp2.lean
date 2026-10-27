@@ -84,12 +84,13 @@ wide products and two Montgomery reductions. The real part
   let t2 := Fp.mulWide (Fp.addRaw a0 a1) (Fp.addRaw b0 b1)
   mk (Fp.redc (Fp.subWideModPR t0 t1)) (Fp.redc (Fp.sub12 (Fp.sub12 t2 t0).1 t1).1)
 
-/-- `(a0 + a1 i)² = (a0 + a1)(a0 − a1) + 2·a0·a1·i`. -/
+/-- `(a0 + a1 i)² = (a0 + a1)(a0 − a1) + (2·a0)·a1·i`. -/
 @[inline] def sqrI (a : Fp2) : Fp2 :=
   let a0 := a.c0
   let a1 := a.c1
-  let t := Fp.mulI a0 a1
-  mk (Fp.mulI (Fp.addI a0 a1) (Fp.subI a0 a1)) (Fp.doubleI t)
+  -- The Montgomery product accepts any first factor below `2^384`, so the
+  -- sums `a0 + a1` and `2·a0` (below `2p`) are left unreduced.
+  mk (Fp.mulI (Fp.addRaw a0 a1) (Fp.subI a0 a1)) (Fp.mulI (Fp.addRaw a0 a0) a1)
 
 /-- Multiply by `ξ = 1 + i`. -/
 @[inline] def mulByXiI (a : Fp2) : Fp2 :=

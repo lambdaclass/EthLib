@@ -81,24 +81,33 @@ def rawOne : Fp := ⟨1, 0, 0, 0, 0, 0⟩
 
 /-! ## Word-vector helpers -/
 
+/-- The modulus as an object. The additive operations read its words from
+memory: on x86-64 a 64-bit constant must otherwise be rebuilt with a
+`movabs` into a register before every use, which roughly doubled the
+instruction count of inlined additions. (The Montgomery rows keep the
+immediates, which there fold into the products.) -/
+def modulusWords : Fp := ⟨P0, P1, P2, P3, P4, P5⟩
+
 /-- `t - p` and the final borrow (`1` iff `t < p`). -/
 @[inline] def subP (t : Fp) : Fp × UInt64 :=
-  let (d0, b) := sbb t.l0 P0 0
-  let (d1, b) := sbb t.l1 P1 b
-  let (d2, b) := sbb t.l2 P2 b
-  let (d3, b) := sbb t.l3 P3 b
-  let (d4, b) := sbb t.l4 P4 b
-  let (d5, b) := sbb t.l5 P5 b
+  let q := modulusWords
+  let (d0, b) := sbb t.l0 q.l0 0
+  let (d1, b) := sbb t.l1 q.l1 b
+  let (d2, b) := sbb t.l2 q.l2 b
+  let (d3, b) := sbb t.l3 q.l3 b
+  let (d4, b) := sbb t.l4 q.l4 b
+  let (d5, b) := sbb t.l5 q.l5 b
   (⟨d0, d1, d2, d3, d4, d5⟩, b)
 
 /-- `t + p` modulo `2^384`. -/
 @[inline] def addP (t : Fp) : Fp :=
-  let (s0, c) := adc t.l0 P0 0
-  let (s1, c) := adc t.l1 P1 c
-  let (s2, c) := adc t.l2 P2 c
-  let (s3, c) := adc t.l3 P3 c
-  let (s4, c) := adc t.l4 P4 c
-  let (s5, _) := adc t.l5 P5 c
+  let q := modulusWords
+  let (s0, c) := adc t.l0 q.l0 0
+  let (s1, c) := adc t.l1 q.l1 c
+  let (s2, c) := adc t.l2 q.l2 c
+  let (s3, c) := adc t.l3 q.l3 c
+  let (s4, c) := adc t.l4 q.l4 c
+  let (s5, _) := adc t.l5 q.l5 c
   ⟨s0, s1, s2, s3, s4, s5⟩
 
 /-- `if m = 0 then a else b`, word by word, for a mask `m` that is `0` or
@@ -246,12 +255,13 @@ so the result stays in `[0, p · R)` for `a, b < p · R`. -/
 @[inline] def subWideModPR (a b : W12) : W12 :=
   let (d, br) := sub12 a b
   let m := 0 - br
-  let (h0, c) := adc d.w6 (P0 &&& m) 0
-  let (h1, c) := adc d.w7 (P1 &&& m) c
-  let (h2, c) := adc d.w8 (P2 &&& m) c
-  let (h3, c) := adc d.w9 (P3 &&& m) c
-  let (h4, c) := adc d.w10 (P4 &&& m) c
-  let (h5, _) := adc d.w11 (P5 &&& m) c
+  let q := modulusWords
+  let (h0, c) := adc d.w6 (q.l0 &&& m) 0
+  let (h1, c) := adc d.w7 (q.l1 &&& m) c
+  let (h2, c) := adc d.w8 (q.l2 &&& m) c
+  let (h3, c) := adc d.w9 (q.l3 &&& m) c
+  let (h4, c) := adc d.w10 (q.l4 &&& m) c
+  let (h5, _) := adc d.w11 (q.l5 &&& m) c
   ⟨d.w0, d.w1, d.w2, d.w3, d.w4, d.w5, h0, h1, h2, h3, h4, h5⟩
 
 /-! Every operation comes in two forms: an `@[inline]` one (`mulI`,
@@ -300,12 +310,13 @@ def sqr (a : Fp) : Fp := mulI a a
   let (d4, br) := sbb a.l4 b.l4 br
   let (d5, br) := sbb a.l5 b.l5 br
   let m := 0 - br
-  let (s0, c) := adc d0 (P0 &&& m) 0
-  let (s1, c) := adc d1 (P1 &&& m) c
-  let (s2, c) := adc d2 (P2 &&& m) c
-  let (s3, c) := adc d3 (P3 &&& m) c
-  let (s4, c) := adc d4 (P4 &&& m) c
-  let (s5, _) := adc d5 (P5 &&& m) c
+  let q := modulusWords
+  let (s0, c) := adc d0 (q.l0 &&& m) 0
+  let (s1, c) := adc d1 (q.l1 &&& m) c
+  let (s2, c) := adc d2 (q.l2 &&& m) c
+  let (s3, c) := adc d3 (q.l3 &&& m) c
+  let (s4, c) := adc d4 (q.l4 &&& m) c
+  let (s5, _) := adc d5 (q.l5 &&& m) c
   ⟨s0, s1, s2, s3, s4, s5⟩
 
 @[inline] def sub (a b : Fp) : Fp := subI a b
@@ -315,12 +326,13 @@ def sqr (a : Fp) : Fp := mulI a a
 
 /-- `p - a`, or `0` for `a = 0`. -/
 @[inline] def negI (a : Fp) : Fp :=
-  let (d0, br) := sbb P0 a.l0 0
-  let (d1, br) := sbb P1 a.l1 br
-  let (d2, br) := sbb P2 a.l2 br
-  let (d3, br) := sbb P3 a.l3 br
-  let (d4, br) := sbb P4 a.l4 br
-  let (d5, _) := sbb P5 a.l5 br
+  let q := modulusWords
+  let (d0, br) := sbb q.l0 a.l0 0
+  let (d1, br) := sbb q.l1 a.l1 br
+  let (d2, br) := sbb q.l2 a.l2 br
+  let (d3, br) := sbb q.l3 a.l3 br
+  let (d4, br) := sbb q.l4 a.l4 br
+  let (d5, _) := sbb q.l5 a.l5 br
   -- `m` is all ones iff `a ≠ 0`.
   let m := 0 - ((a.l0 ||| a.l1 ||| a.l2 ||| a.l3 ||| a.l4 ||| a.l5) != 0).toUInt64
   ⟨d0 &&& m, d1 &&& m, d2 &&& m, d3 &&& m, d4 &&& m, d5 &&& m⟩
