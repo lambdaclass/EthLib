@@ -84,10 +84,35 @@ theorem toSpec_x (p : G1) : (toSpec p).x = p.x.val := rfl
 theorem toSpec_y (p : G1) : (toSpec p).y = p.y.val := rfl
 theorem toSpec_z (p : G1) : (toSpec p).z = p.z.val := rfl
 
+private theorem fp_sqr_eq (a : Fp) : a.sqr = Fp.mulI a a := rfl
+private theorem fp_mul_eq (a b : Fp) : a * b = Fp.mulI a b := rfl
+private theorem fp_add_eq (a b : Fp) : a + b = Fp.addI a b := rfl
+private theorem fp_sub_eq (a b : Fp) : a - b = Fp.subI a b := rfl
+private theorem fp_double_eq (a : Fp) : a.double = Fp.addI a a := rfl
+
+/-- `double` is the old operator-notation body: its inlined `Fp.mulI`/`Fp.addI`/…
+are those operators by definition. -/
+theorem double_eq_spec_form (p : G1) : double p =
+    if p.z.isZero then p else
+      let A := p.x.sqr
+      let B := p.y.sqr
+      let C := B.sqr
+      let D := ((p.x + B).sqr - A - C).double
+      let E := A.double + A
+      let F := E.sqr
+      let x' := F - D.double
+      let y' := E * (D - x') - C.double.double.double
+      let z' := (p.y * p.z).double
+      ⟨x', y', z'⟩ := by
+  unfold double
+  simp (config := {zeta := false}) only [fp_sqr_eq, fp_mul_eq, fp_add_eq, fp_sub_eq, fp_double_eq, Fp.doubleI]
+  rfl
+
 theorem double_spec {p : G1} (hp : Canonical p) :
     Canonical (double p) ∧ toSpec (double p) = EthLib.Cryptography.Bls.G1.double (toSpec p) := by
   have hs : (toSpec p).z.isZero = p.z.isZero := (isZero_eq hp.2.2).symm
-  unfold double EthLib.Cryptography.Bls.G1.double
+  rw [double_eq_spec_form]
+  unfold EthLib.Cryptography.Bls.G1.double
   rw [hs]
   by_cases h : p.z.isZero = true
   · rw [if_pos h, if_pos h]

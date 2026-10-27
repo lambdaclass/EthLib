@@ -81,11 +81,10 @@ def rawOne : Fp := ⟨1, 0, 0, 0, 0, 0⟩
 
 /-! ## Word-vector helpers -/
 
-/-- The modulus as an object. The additive operations read its words from
-memory: on x86-64 a 64-bit constant must otherwise be rebuilt with a
-`movabs` into a register before every use, which roughly doubled the
-instruction count of inlined additions. (The Montgomery rows keep the
-immediates, which there fold into the products.) -/
+/-- The modulus as an object. Additions and the Montgomery rows read its
+words from memory: on x86-64 a 64-bit constant must otherwise be rebuilt
+with a `movabs` into a register before every use, which roughly doubled
+the instruction count of inlined additions. -/
 def modulusWords : Fp := ⟨P0, P1, P2, P3, P4, P5⟩
 
 /-- `t - p` and the final borrow (`1` iff `t < p`). -/
@@ -165,18 +164,22 @@ cannot overflow: the sum is below `2^448`. -/
 exact. The low word of the sum is zero; only its carry is kept. -/
 @[inline] def redRow (t : Acc7) : Fp :=
   let m := t.w0 * N0
-  let (_, c) := adc t.w0 (m * P0) 0
-  let (s1, c) := adc t.w1 (m * P1) c
-  let (s2, c) := adc t.w2 (m * P2) c
-  let (s3, c) := adc t.w3 (m * P3) c
-  let (s4, c) := adc t.w4 (m * P4) c
-  let (s5, c) := adc t.w5 (m * P5) c
-  let (u1, d) := adc s1 (mulHi m P0) 0
-  let (u2, d) := adc s2 (mulHi m P1) d
-  let (u3, d) := adc s3 (mulHi m P2) d
-  let (u4, d) := adc s4 (mulHi m P3) d
-  let (u5, d) := adc s5 (mulHi m P4) d
-  ⟨u1, u2, u3, u4, u5, t.w6 + c + mulHi m P5 + d⟩
+  -- The modulus words come from memory here too: inside the larger
+  -- kernels (`Fp2` products, inlined curve formulas) that measured faster
+  -- than rebuilding them as immediates (`N0` stays an immediate).
+  let q := modulusWords
+  let (_, c) := adc t.w0 (m * q.l0) 0
+  let (s1, c) := adc t.w1 (m * q.l1) c
+  let (s2, c) := adc t.w2 (m * q.l2) c
+  let (s3, c) := adc t.w3 (m * q.l3) c
+  let (s4, c) := adc t.w4 (m * q.l4) c
+  let (s5, c) := adc t.w5 (m * q.l5) c
+  let (u1, d) := adc s1 (mulHi m q.l0) 0
+  let (u2, d) := adc s2 (mulHi m q.l1) d
+  let (u3, d) := adc s3 (mulHi m q.l2) d
+  let (u4, d) := adc s4 (mulHi m q.l3) d
+  let (u5, d) := adc s5 (mulHi m q.l4) d
+  ⟨u1, u2, u3, u4, u5, t.w6 + c + mulHi m q.l5 + d⟩
 
 /-! ## Wide products and Montgomery reduction
 
@@ -404,14 +407,19 @@ def powTable (a : Fp) : Array Fp := Id.run do
   return t
 
 /-- `a ^ e` where `ds` are the base-16 digits of `e`, most significant
-first. -/
+first. The four squarings per digit are inlined, so the loop allocates
+only when it multiplies by a table entry, and that product takes the
+exclusive accumulator as its second argument, whose memory it reuses. -/
 def powNibbles (a : Fp) (ds : ByteArray) : Fp := Id.run do
   let tbl := powTable a
   let mut acc := one
   for i in [0:ds.size] do
-    acc := sqr (sqr (sqr (sqr acc)))
+    acc := mulI acc acc
+    acc := mulI acc acc
+    acc := mulI acc acc
+    acc := mulI acc acc
     let d := ds.get! i
-    if d != 0 then acc := mul acc tbl[d.toNat]!
+    if d != 0 then acc := mul tbl[d.toNat]! acc
   return acc
 
 /-- `a ^ e` for an arbitrary exponent. -/

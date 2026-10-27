@@ -20,6 +20,11 @@ Additions over the spec:
 
 namespace EthLibImpl.Cryptography.Bls
 
+-- `double` inlines its field products, which takes the compiler past its
+-- default limits.
+set_option maxRecDepth 100000
+set_option maxHeartbeats 0
+
 open EthLib.Cryptography.Bls (Fr)
 
 /-- A G1 point in Jacobian coordinates; `z = 0` is the point at infinity. -/
@@ -40,18 +45,22 @@ def zero : G1 := ⟨Fp.one, Fp.one, Fp.zero⟩
 
 @[inline] def isInfinity (p : G1) : Bool := p.z.isZero
 
-/-- The spec's doubling (`dbl-2009-l`). -/
+/-- The spec's doubling (`dbl-2009-l`), with the field operations inlined
+(`Fp.mulI`, `Fp.addI`, … rather than `*`, `+`, …, which are the same
+functions by definition): the doubling is the whole inner loop of the
+subgroup test, and inlining saves a call and an allocation per product. -/
 def double (p : G1) : G1 :=
   if p.z.isZero then p else
-    let A := p.x.sqr
-    let B := p.y.sqr
-    let C := B.sqr
-    let D := ((p.x + B).sqr - A - C).double
-    let E := A.double + A
-    let F := E.sqr
-    let x' := F - D.double
-    let y' := E * (D - x') - C.double.double.double
-    let z' := (p.y * p.z).double
+    let A := Fp.mulI p.x p.x
+    let B := Fp.mulI p.y p.y
+    let C := Fp.mulI B B
+    let s := Fp.addI p.x B
+    let D := Fp.doubleI (Fp.subI (Fp.subI (Fp.mulI s s) A) C)
+    let E := Fp.addI (Fp.doubleI A) A
+    let F := Fp.mulI E E
+    let x' := Fp.subI F (Fp.doubleI D)
+    let y' := Fp.subI (Fp.mulI E (Fp.subI D x')) (Fp.doubleI (Fp.doubleI (Fp.doubleI C)))
+    let z' := Fp.doubleI (Fp.mulI p.y p.z)
     ⟨x', y', z'⟩
 
 def neg (p : G1) : G1 := ⟨p.x, -p.y, p.z⟩
