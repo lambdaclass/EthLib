@@ -1,3 +1,4 @@
+import EthLibImpl.Cryptography.Bls.Sha256Fast
 import EthLibImpl.Cryptography.Bls.Compress
 import EthLib.Cryptography.Bls.HashToCurve
 
@@ -35,13 +36,62 @@ open EthLib.Cryptography.Bls (BlsError)
 /-- OS2IP of 64 bytes, reduced modulo `p`. -/
 def fpFromBytesL (b : ByteArray) : Fp := Fp.ofBytes64BE b 0
 
+/-! Spec `expandMessageXmd` (RFC 9380 §5.3.1) over `Sha256Fast`; the
+helpers are copies of the spec's private ones. -/
+namespace FastXmd
+open EthLib.Cryptography.Bls (BlsError)
+def sha256BlockSize : Nat := 64
+def sha256OutputSize : Nat := 32
+def oversizeDstPrefix : ByteArray :=
+  String.toUTF8 "H2C-OVERSIZE-DST-"
+
+def i2osp (n : Nat) (len : Nat) : ByteArray :=
+  ByteArray.mk <| Array.ofFn (n := len) fun i =>
+    UInt8.ofNat ((n >>> ((len - 1 - i.val) * 8)) &&& 0xff)
+
+def strxor (a b : ByteArray) : ByteArray :=
+  ByteArray.mk <| Array.ofFn (n := a.size) fun i => a[i.val]! ^^^ b[i.val]!
+
+/-- Expand `msg` into `lenInBytes` pseudo-random bytes via XMD with
+SHA-256. Follows RFC 9380 §5.3.1 and §5.3.3: oversized DSTs are first
+shortened with SHA-256, and oversized output requests are rejected. -/
+def expandMessageXmdFast
+    (msg : ByteArray) (dst : ByteArray) (lenInBytes : Nat)
+    : Except BlsError ByteArray := do
+  let ell := (lenInBytes + sha256OutputSize - 1) / sha256OutputSize
+  if lenInBytes > 65535 then
+    throw (.expandMessageOutputTooLong lenInBytes)
+  if ell > 255 then
+    throw (.expandMessageTooManyBlocks ell)
+  let dst :=
+    if dst.size > 255 then
+      EthLibImpl.Cryptography.Bls.Sha256Fast.hash (oversizeDstPrefix ++ dst)
+    else
+      dst
+  let zPad := ByteArray.mk (Array.replicate sha256BlockSize 0)
+  let dstPrime := dst ++ i2osp dst.size 1
+  let lIbStr := i2osp lenInBytes 2
+  let msgPrime := zPad ++ msg ++ lIbStr ++ i2osp 0 1 ++ dstPrime
+  let b0 := EthLibImpl.Cryptography.Bls.Sha256Fast.hash msgPrime
+  let mut bs : Array ByteArray := Array.mkEmpty ell
+  let b1 := EthLibImpl.Cryptography.Bls.Sha256Fast.hash (b0 ++ i2osp 1 1 ++ dstPrime)
+  bs := bs.push b1
+  for i in [2:ell+1] do
+    let prev := bs[bs.size - 1]!
+    let bi := EthLibImpl.Cryptography.Bls.Sha256Fast.hash (strxor b0 prev ++ i2osp i 1 ++ dstPrime)
+    bs := bs.push bi
+  let mut out := bs.foldl (· ++ ·) ByteArray.empty
+  return out.extract 0 lenInBytes
+
+end FastXmd
+
 /-- Spec `hashToFieldFp2`. -/
 def hashToFieldFp2 (msg : ByteArray) (dst : ByteArray) (count : Nat) :
     Except BlsError (Array Fp2) := do
   let l := 64
   let m := 2
   let lenInBytes := count * m * l
-  let uniform ← EthLib.Cryptography.Bls.HashToCurve.expandMessageXmd msg dst lenInBytes
+  let uniform ← FastXmd.expandMessageXmdFast msg dst lenInBytes
   let mut out : Array Fp2 := Array.mkEmpty count
   for i in [:count] do
     let off0 := l * (i * m)

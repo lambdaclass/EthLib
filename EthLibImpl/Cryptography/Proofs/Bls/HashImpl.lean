@@ -4,6 +4,7 @@ import EthLibImpl.Cryptography.Bls.HashToCurve
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorHash
 import EthLibImpl.Cryptography.Proofs.Bls.HashMath
 import EthLib.Cryptography.Proofs.IdLoops
+import EthLibImpl.Cryptography.Proofs.Bls.Sha256Fast
 
 /-!
 # Proofs: the implementation's hash-to-curve computes the spec's
@@ -160,6 +161,13 @@ theorem forIn_range_sim_idx {ε β β' : Type} (inv : Nat → β → β' → Pro
 
 
 
+/-- The implementation's `expand_message_xmd` (over `Sha256Fast`) computes the spec's. -/
+theorem expandMessageXmdFast_eq (msg dst : ByteArray) (n : Nat) :
+    FastXmd.expandMessageXmdFast msg dst n = Bls.HashToCurve.expandMessageXmd msg dst n := by
+  unfold FastXmd.expandMessageXmdFast Bls.HashToCurve.expandMessageXmd
+  simp only [Sha256Fast.hash_eq]
+  rfl
+
 end EthLibImpl.Cryptography.Bls.HashToCurve
 
 namespace EthLibImpl.Cryptography.Bls.HashConst
@@ -263,6 +271,7 @@ theorem hashToFieldFp2_spec_aux (msg dst : ByteArray) (count : Nat) :
       us.size = count ∧ ∀ x ∈ us, x.Canonical := by
   unfold HashToCurve.hashToFieldFp2 EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2
   dsimp only
+  rw [HashToCurve.expandMessageXmdFast_eq]
   rcases hu : EthLib.Cryptography.Bls.HashToCurve.expandMessageXmd msg dst (count * 2 * 64)
     with e | uniform
   · refine ⟨?_, fun us h => ?_⟩
@@ -377,7 +386,7 @@ def swuG (x1e nBA A B : Fp2) (sq : Fp2 → Except BlsError Fp2) (sgn : Fp2 → B
           (x2, y))
         (fun _ =>
           @panicWithPosWithDecl (Fp2 × Fp2) _ "EthLibImpl.Cryptography.Bls.HashToCurve"
-            "EthLibImpl.Cryptography.Bls.HashToCurve.simpleSwuWith" 92 18
+            "EthLibImpl.Cryptography.Bls.HashToCurve.simpleSwuWith" 142 18
             "neither gx1 nor gx2 is a square"))
 
 theorem simpleSwuWith_eq_G : simpleSwuWith =
