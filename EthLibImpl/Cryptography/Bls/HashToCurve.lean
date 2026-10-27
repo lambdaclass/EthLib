@@ -30,8 +30,6 @@ Algorithmic differences, none of which changes a value:
 * `hash_to_field` reduces each 64-byte chunk with two Montgomery
   multiplications instead of big-number arithmetic, and `mulNegX` keeps
   its 64-bit scalar in a machine word.
-
-`simpleSwuWith` takes the denominator's inverse, so the pipeline shares one inversion.
 -/
 
 namespace EthLibImpl.Cryptography.Bls.HashToCurve
@@ -132,8 +130,10 @@ def s125 : Fp := Fp.ofNat
   0x810e5a23cbb86fd12ded1af502287a397ed25c1d6fe0444e38c48e9c7ddb3c27cfebdd464e90f201fda0eb6983f2533
 
 /-- The spec's `panic!` when neither `gx1` nor `gx2` is a square (never reached: one of them
-always is). A constant so that no source position is duplicated elsewhere. -/
-def swuPanic : Fp2 × Fp2 := panic! "neither gx1 nor gx2 is a square"
+always is). A function of `Unit`, not a constant: Lean evaluates constants at module
+initialization with panic messages off, so a constant would silently be `default`. One
+definition, so no source position is duplicated elsewhere. -/
+def swuPanic (_ : Unit) : Fp2 × Fp2 := panic! "neither gx1 nor gx2 is a square"
 
 /-- The spec's square-root step of SSWU, given `x1` and `gx1 = g(x1)`: take
 `Fp2.sqrt gx1`, and on failure `Fp2.sqrt` of `gx2 = g(zu2·x1)`. Only used when
@@ -151,7 +151,7 @@ def simpleSwuSlow (u zu2 x1 gx1 : Fp2) : Fp2 × Fp2 :=
     | .ok y =>
       let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
       (x2, y)
-    | .error _ => swuPanic
+    | .error _ => swuPanic ()
 
 /-- Spec `simpleSwu`, given `swuDenom u = (zu2, denom)` and `denom`'s
 inverse.

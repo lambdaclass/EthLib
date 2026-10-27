@@ -435,7 +435,7 @@ def swuSlowG (A B : Fp2) (sq : Fp2 → Except BlsError Fp2) (sgn : Fp2 → Bool)
           let y := if sgn u = sgn y then y else -y
           (x2, y))
         (fun _ =>
-          swuPanic))
+          swuPanic ()))
 
 theorem simpleSwuSlow_eq_G : simpleSwuSlow =
     swuSlowG Aprime Bprime Fp2.sqrt sgn0Fp2 := rfl
@@ -495,7 +495,7 @@ def swuSlowG' (A B : EthLib.Cryptography.Bls.Fp2)
           let y := if sgn u = sgn y then y else -y
           (x2, y))
         (fun _ =>
-          Mirror.HashToCurve.swuPanic))
+          Mirror.HashToCurve.swuPanic ()))
 
 /-- The mirror's SSWU with the constants, the square root, `sgn0`, the candidate and the root
 from a norm root as parameters. -/
@@ -569,7 +569,7 @@ theorem swuSlowG_spec (A B : Fp2) (A' B' : EthLib.Cryptography.Bls.Fp2)
       ∀ c, sq a = .ok c → c.Canonical)
     (sgn : Fp2 → Bool) (sgn' : EthLib.Cryptography.Bls.Fp2 → Bool)
     (hsgn : ∀ y : Fp2, y.Canonical → sgn y = sgn' y.toSpec)
-    (hpan : PRel swuPanic Mirror.HashToCurve.swuPanic)
+    (hpan : PRel (swuPanic ()) (Mirror.HashToCurve.swuPanic ()))
     {u zu2 x1 gx1 : Fp2} (hu : u.Canonical) (hz : zu2.Canonical) (hx : x1.Canonical)
     (hg : gx1.Canonical) :
     PRel (swuSlowG A B sq sgn u zu2 x1 gx1)
@@ -759,9 +759,9 @@ theorem default_spec : (default : Fp2 × Fp2).1.Canonical ∧ (default : Fp2 × 
   show _ = ((default : EthLib.Cryptography.Bls.Fp2), (default : EthLib.Cryptography.Bls.Fp2))
   rw [d2]
 
-theorem swuPanic_spec : PRel swuPanic Mirror.HashToCurve.swuPanic := by
-  have h1 : swuPanic = default := rfl
-  have h2 : Mirror.HashToCurve.swuPanic = default := rfl
+theorem swuPanic_spec : PRel (swuPanic ()) (Mirror.HashToCurve.swuPanic ()) := by
+  have h1 : swuPanic () = default := rfl
+  have h2 : Mirror.HashToCurve.swuPanic () = default := rfl
   rw [h1, h2]
   exact default_spec
 
