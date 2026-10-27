@@ -405,13 +405,18 @@ def Acc7.val (t : Acc7) : Nat :=
     2^64 * (t.w4.toNat + 2^64 * (t.w5.toNat + 2^64 * t.w6.toNat)))))
 
 theorem mulRow_eq (t : Fp) (a : UInt64) (b : Fp) : mulRow t a b =
-    let r0 := mac t.l0 a b.l0 0
-    let r1 := mac t.l1 a b.l1 r0.2
-    let r2 := mac t.l2 a b.l2 r1.2
-    let r3 := mac t.l3 a b.l3 r2.2
-    let r4 := mac t.l4 a b.l4 r3.2
-    let r5 := mac t.l5 a b.l5 r4.2
-    ⟨r0.1, r1.1, r2.1, r3.1, r4.1, r5.1, r5.2⟩ := rfl
+    let s0 := adc t.l0 (a * b.l0) 0
+    let s1 := adc t.l1 (a * b.l1) s0.2
+    let s2 := adc t.l2 (a * b.l2) s1.2
+    let s3 := adc t.l3 (a * b.l3) s2.2
+    let s4 := adc t.l4 (a * b.l4) s3.2
+    let s5 := adc t.l5 (a * b.l5) s4.2
+    let u1 := adc s1.1 (mulHi a b.l0) 0
+    let u2 := adc s2.1 (mulHi a b.l1) u1.2
+    let u3 := adc s3.1 (mulHi a b.l2) u2.2
+    let u4 := adc s4.1 (mulHi a b.l3) u3.2
+    let u5 := adc s5.1 (mulHi a b.l4) u4.2
+    ⟨s0.1, u1.1, u2.1, u3.1, u4.1, u5.1, s5.2 + mulHi a b.l5 + u5.2⟩ := rfl
 
 /-- `mulRow` adds `a · b` to the accumulator exactly. -/
 theorem mulRow_val (t : Fp) (a : UInt64) (b : Fp) :
@@ -419,32 +424,89 @@ theorem mulRow_val (t : Fp) (a : UInt64) (b : Fp) :
   have hb : a.toNat * b.raw = a.toNat * b.l0.toNat + 2^64 * (a.toNat * b.l1.toNat +
       2^64 * (a.toNat * b.l2.toNat + 2^64 * (a.toNat * b.l3.toNat + 2^64 * (a.toNat * b.l4.toNat +
       2^64 * (a.toNat * b.l5.toNat))))) := by unfold raw; ring
+  have hab : a.toNat * b.raw ≤ (2 ^ 64 - 1) * (2 ^ 384 - 1) :=
+    Nat.mul_le_mul (by have := a.toNat_lt; omega) (by
+      have := b.l0.toNat_lt; have := b.l1.toNat_lt; have := b.l2.toNat_lt
+      have := b.l3.toNat_lt; have := b.l4.toNat_lt; have := b.l5.toNat_lt
+      unfold raw; omega)
+  have htb : t.raw < 2 ^ 384 := by
+    have := t.l0.toNat_lt; have := t.l1.toNat_lt; have := t.l2.toNat_lt
+    have := t.l3.toNat_lt; have := t.l4.toNat_lt; have := t.l5.toNat_lt
+    unfold raw; omega
+  rw [hb] at hab
   rw [hb, mulRow_eq]
-  simp only [Acc7.val, raw]
-  have h0 := mac_spec t.l0 a b.l0 0
-  generalize mac t.l0 a b.l0 0 = r0 at *
-  have h1 := mac_spec t.l1 a b.l1 r0.2
-  generalize mac t.l1 a b.l1 r0.2 = r1 at *
-  have h2 := mac_spec t.l2 a b.l2 r1.2
-  generalize mac t.l2 a b.l2 r1.2 = r2 at *
-  have h3 := mac_spec t.l3 a b.l3 r2.2
-  generalize mac t.l3 a b.l3 r2.2 = r3 at *
-  have h4 := mac_spec t.l4 a b.l4 r3.2
-  generalize mac t.l4 a b.l4 r3.2 = r4 at *
-  have h5 := mac_spec t.l5 a b.l5 r4.2
-  generalize mac t.l5 a b.l5 r4.2 = r5 at *
-  simp only [UInt64.reduceToNat] at h0
+  simp only [Acc7.val, raw] at *
+  have p0 := mul_toNat_add_mulHi a b.l0
+  have p1 := mul_toNat_add_mulHi a b.l1
+  have p2 := mul_toNat_add_mulHi a b.l2
+  have p3 := mul_toNat_add_mulHi a b.l3
+  have p4 := mul_toNat_add_mulHi a b.l4
+  have p5 := mul_toNat_add_mulHi a b.l5
+  have h0 := adc_spec t.l0 (a * b.l0) 0 (by decide)
+  generalize adc t.l0 (a * b.l0) 0 = s0 at *
+  have h1 := adc_spec t.l1 (a * b.l1) s0.2 h0.2
+  generalize adc t.l1 (a * b.l1) s0.2 = s1 at *
+  have h2 := adc_spec t.l2 (a * b.l2) s1.2 h1.2
+  generalize adc t.l2 (a * b.l2) s1.2 = s2 at *
+  have h3 := adc_spec t.l3 (a * b.l3) s2.2 h2.2
+  generalize adc t.l3 (a * b.l3) s2.2 = s3 at *
+  have h4 := adc_spec t.l4 (a * b.l4) s3.2 h3.2
+  generalize adc t.l4 (a * b.l4) s3.2 = s4 at *
+  have h5 := adc_spec t.l5 (a * b.l5) s4.2 h4.2
+  generalize adc t.l5 (a * b.l5) s4.2 = s5 at *
+  have g1 := adc_spec s1.1 (mulHi a b.l0) 0 (by decide)
+  generalize adc s1.1 (mulHi a b.l0) 0 = u1 at *
+  have g2 := adc_spec s2.1 (mulHi a b.l1) u1.2 g1.2
+  generalize adc s2.1 (mulHi a b.l1) u1.2 = u2 at *
+  have g3 := adc_spec s3.1 (mulHi a b.l2) u2.2 g2.2
+  generalize adc s3.1 (mulHi a b.l2) u2.2 = u3 at *
+  have g4 := adc_spec s4.1 (mulHi a b.l3) u3.2 g3.2
+  generalize adc s4.1 (mulHi a b.l3) u3.2 = u4 at *
+  have g5 := adc_spec s5.1 (mulHi a b.l4) u4.2 g4.2
+  generalize adc s5.1 (mulHi a b.l4) u4.2 = u5 at *
+  simp only [UInt64.reduceToNat] at h0 g1
+  obtain ⟨e0, -⟩ := h0
+  obtain ⟨e1, -⟩ := h1
+  obtain ⟨e2, -⟩ := h2
+  obtain ⟨e3, -⟩ := h3
+  obtain ⟨e4, -⟩ := h4
+  obtain ⟨e5, -⟩ := h5
+  obtain ⟨f1, -⟩ := g1
+  obtain ⟨f2, -⟩ := g2
+  obtain ⟨f3, -⟩ := g3
+  obtain ⟨f4, -⟩ := g4
+  obtain ⟨f5, -⟩ := g5
+  clear hb
+  generalize a.toNat * b.l0.toNat = A0 at *
+  generalize a.toNat * b.l1.toNat = A1 at *
+  generalize a.toNat * b.l2.toNat = A2 at *
+  generalize a.toNat * b.l3.toNat = A3 at *
+  generalize a.toNat * b.l4.toNat = A4 at *
+  generalize a.toNat * b.l5.toNat = A5 at *
+  have hT : s5.2.toNat + (mulHi a b.l5).toNat + u5.2.toNat < 2 ^ 64 := by omega
+  have hTe : (s5.2 + mulHi a b.l5 + u5.2).toNat =
+      s5.2.toNat + (mulHi a b.l5).toNat + u5.2.toNat := by
+    have h1 := s5.2.toNat_lt
+    have h2 := (mulHi a b.l5).toNat_lt
+    simp only [UInt64.toNat_add]
+    omega
+  rw [hTe]
   omega
 
 theorem redRow_eq (t : Acc7) : redRow t =
     let m := t.w0 * N0
-    let r0 := mac t.w0 m P0 0
-    let r1 := mac t.w1 m P1 r0.2
-    let r2 := mac t.w2 m P2 r1.2
-    let r3 := mac t.w3 m P3 r2.2
-    let r4 := mac t.w4 m P4 r3.2
-    let r5 := mac t.w5 m P5 r4.2
-    ⟨r1.1, r2.1, r3.1, r4.1, r5.1, t.w6 + r5.2⟩ := rfl
+    let s0 := adc t.w0 (m * P0) 0
+    let s1 := adc t.w1 (m * P1) s0.2
+    let s2 := adc t.w2 (m * P2) s1.2
+    let s3 := adc t.w3 (m * P3) s2.2
+    let s4 := adc t.w4 (m * P4) s3.2
+    let s5 := adc t.w5 (m * P5) s4.2
+    let u1 := adc s1.1 (mulHi m P0) 0
+    let u2 := adc s2.1 (mulHi m P1) u1.2
+    let u3 := adc s3.1 (mulHi m P2) u2.2
+    let u4 := adc s4.1 (mulHi m P3) u3.2
+    let u5 := adc s5.1 (mulHi m P4) u4.2
+    ⟨u1.1, u2.1, u3.1, u4.1, u5.1, t.w6 + s5.2 + mulHi m P5 + u5.2⟩ := rfl
 
 theorem P0_toNat : P0.toNat = 0xb9feffffffffaaab := rfl
 theorem P1_toNat : P1.toNat = 0x1eabfffeb153ffff := rfl
@@ -463,31 +525,64 @@ theorem redRow_spec (t : Acc7) (h : t.val + (t.w0 * N0).toNat * modulus < 2 ^ 44
   generalize hm : t.w0 * N0 = m at *
   have hmv : m.toNat = t.w0.toNat * 0x89f3fffcfffcfffd % 2 ^ 64 := by
     rw [← hm, UInt64.toNat_mul, N0_toNat]
-  have h0 := mac_spec t.w0 m P0 0
-  generalize mac t.w0 m P0 0 = r0 at *
-  have h1 := mac_spec t.w1 m P1 r0.2
-  generalize mac t.w1 m P1 r0.2 = r1 at *
-  have h2 := mac_spec t.w2 m P2 r1.2
-  generalize mac t.w2 m P2 r1.2 = r2 at *
-  have h3 := mac_spec t.w3 m P3 r2.2
-  generalize mac t.w3 m P3 r2.2 = r3 at *
-  have h4 := mac_spec t.w4 m P4 r3.2
-  generalize mac t.w4 m P4 r3.2 = r4 at *
-  have h5 := mac_spec t.w5 m P5 r4.2
-  generalize mac t.w5 m P5 r4.2 = r5 at *
+  have p0 := mul_toNat_add_mulHi m P0
+  have p1 := mul_toNat_add_mulHi m P1
+  have p2 := mul_toNat_add_mulHi m P2
+  have p3 := mul_toNat_add_mulHi m P3
+  have p4 := mul_toNat_add_mulHi m P4
+  have p5 := mul_toNat_add_mulHi m P5
+  have h0 := adc_spec t.w0 (m * P0) 0 (by decide)
+  generalize adc t.w0 (m * P0) 0 = s0 at *
+  have h1 := adc_spec t.w1 (m * P1) s0.2 h0.2
+  generalize adc t.w1 (m * P1) s0.2 = s1 at *
+  have h2 := adc_spec t.w2 (m * P2) s1.2 h1.2
+  generalize adc t.w2 (m * P2) s1.2 = s2 at *
+  have h3 := adc_spec t.w3 (m * P3) s2.2 h2.2
+  generalize adc t.w3 (m * P3) s2.2 = s3 at *
+  have h4 := adc_spec t.w4 (m * P4) s3.2 h3.2
+  generalize adc t.w4 (m * P4) s3.2 = s4 at *
+  have h5 := adc_spec t.w5 (m * P5) s4.2 h4.2
+  generalize adc t.w5 (m * P5) s4.2 = s5 at *
+  have g1 := adc_spec s1.1 (mulHi m P0) 0 (by decide)
+  generalize adc s1.1 (mulHi m P0) 0 = u1 at *
+  have g2 := adc_spec s2.1 (mulHi m P1) u1.2 g1.2
+  generalize adc s2.1 (mulHi m P1) u1.2 = u2 at *
+  have g3 := adc_spec s3.1 (mulHi m P2) u2.2 g2.2
+  generalize adc s3.1 (mulHi m P2) u2.2 = u3 at *
+  have g4 := adc_spec s4.1 (mulHi m P3) u3.2 g3.2
+  generalize adc s4.1 (mulHi m P3) u3.2 = u4 at *
+  have g5 := adc_spec s5.1 (mulHi m P4) u4.2 g4.2
+  generalize adc s5.1 (mulHi m P4) u4.2 = u5 at *
   simp only [UInt64.reduceToNat, P0_toNat, P1_toNat, P2_toNat, P3_toNat, P4_toNat,
-    P5_toNat] at h0 h1 h2 h3 h4 h5
-  rw [UInt64.toNat_add]
-  have := r0.1.toNat_lt
-  have := r1.1.toNat_lt
-  have := r2.1.toNat_lt
-  have := r3.1.toNat_lt
-  have := r4.1.toNat_lt
-  have := r5.1.toNat_lt
-  have := r5.2.toNat_lt
-  have := t.w0.toNat_lt
-  have := t.w6.toNat_lt
+    P5_toNat] at h0 h1 h2 h3 h4 h5 g1 g2 g3 g4 g5 p0 p1 p2 p3 p4 p5
+  obtain ⟨e0, -⟩ := h0
+  obtain ⟨e1, -⟩ := h1
+  obtain ⟨e2, -⟩ := h2
+  obtain ⟨e3, -⟩ := h3
+  obtain ⟨e4, -⟩ := h4
+  obtain ⟨e5, -⟩ := h5
+  obtain ⟨f1, -⟩ := g1
+  obtain ⟨f2, -⟩ := g2
+  obtain ⟨f3, -⟩ := g3
+  obtain ⟨f4, -⟩ := g4
+  obtain ⟨f5, -⟩ := g5
   unfold modulus at *
+  have hlow : s0.1.toNat = 0 := by
+    have := s0.1.toNat_lt
+    have := t.w0.toNat_lt
+    have := (m * P0).toNat_lt
+    clear e1 e2 e3 e4 e5 f1 f2 f3 f4 f5 p1 p2 p3 p4 p5 h
+    omega
+  clear hmv
+  have hT : t.w6.toNat + s5.2.toNat + (mulHi m P5).toNat + u5.2.toNat < 2 ^ 64 := by omega
+  have hTe : (t.w6 + s5.2 + mulHi m P5 + u5.2).toNat =
+      t.w6.toNat + s5.2.toNat + (mulHi m P5).toNat + u5.2.toNat := by
+    have h1 := t.w6.toNat_lt
+    have h2 := s5.2.toNat_lt
+    have h3 := (mulHi m P5).toNat_lt
+    simp only [UInt64.toNat_add]
+    omega
+  rw [hTe]
   omega
 
 /-- One CIOS row: from an accumulator below `2p` and a canonical `b`, the

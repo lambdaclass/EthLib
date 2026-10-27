@@ -119,7 +119,12 @@ a structure at a join point. -/
 `mul` runs six rows. Row `i` adds `a_i · b` to the accumulator (`mulRow`),
 then adds the multiple `m · p` that clears the low word and drops that word
 (`redRow`). After every row the accumulator is below `2p`, and after the
-sixth it equals `a · b · R⁻¹` modulo `p`. -/
+sixth it equals `a · b · R⁻¹` modulo `p`.
+
+Each half-row computes its six products first and then adds the low words
+and the (shifted) high words in two separate `adc` chains. Every chain
+compiles to one run of add-with-carry instructions, which is about half the
+instructions of accumulating each product with its own carries. -/
 
 /-- Seven-word accumulator between the two halves of a row. -/
 structure Acc7 where
@@ -131,27 +136,38 @@ structure Acc7 where
   w5 : UInt64
   w6 : UInt64
 
-/-- `t + a · b` for a six-word `t` and a single word `a`. -/
+/-- `t + a · b` for a six-word `t` and a single word `a`. The top word
+cannot overflow: the sum is below `2^448`. -/
 @[inline] def mulRow (t : Fp) (a : UInt64) (b : Fp) : Acc7 :=
-  let (r0, c) := mac t.l0 a b.l0 0
-  let (r1, c) := mac t.l1 a b.l1 c
-  let (r2, c) := mac t.l2 a b.l2 c
-  let (r3, c) := mac t.l3 a b.l3 c
-  let (r4, c) := mac t.l4 a b.l4 c
-  let (r5, c) := mac t.l5 a b.l5 c
-  ⟨r0, r1, r2, r3, r4, r5, c⟩
+  let (s0, c) := adc t.l0 (a * b.l0) 0
+  let (s1, c) := adc t.l1 (a * b.l1) c
+  let (s2, c) := adc t.l2 (a * b.l2) c
+  let (s3, c) := adc t.l3 (a * b.l3) c
+  let (s4, c) := adc t.l4 (a * b.l4) c
+  let (s5, c) := adc t.l5 (a * b.l5) c
+  let (u1, d) := adc s1 (mulHi a b.l0) 0
+  let (u2, d) := adc s2 (mulHi a b.l1) d
+  let (u3, d) := adc s3 (mulHi a b.l2) d
+  let (u4, d) := adc s4 (mulHi a b.l3) d
+  let (u5, d) := adc s5 (mulHi a b.l4) d
+  ⟨s0, u1, u2, u3, u4, u5, c + mulHi a b.l5 + d⟩
 
 /-- `(t + m · p) / 2^64` with `m = t₀ · N0 mod 2^64`, so the division is
-exact. -/
+exact. The low word of the sum is zero; only its carry is kept. -/
 @[inline] def redRow (t : Acc7) : Fp :=
   let m := t.w0 * N0
-  let (_, c) := mac t.w0 m P0 0
-  let (r0, c) := mac t.w1 m P1 c
-  let (r1, c) := mac t.w2 m P2 c
-  let (r2, c) := mac t.w3 m P3 c
-  let (r3, c) := mac t.w4 m P4 c
-  let (r4, c) := mac t.w5 m P5 c
-  ⟨r0, r1, r2, r3, r4, t.w6 + c⟩
+  let (_, c) := adc t.w0 (m * P0) 0
+  let (s1, c) := adc t.w1 (m * P1) c
+  let (s2, c) := adc t.w2 (m * P2) c
+  let (s3, c) := adc t.w3 (m * P3) c
+  let (s4, c) := adc t.w4 (m * P4) c
+  let (s5, c) := adc t.w5 (m * P5) c
+  let (u1, d) := adc s1 (mulHi m P0) 0
+  let (u2, d) := adc s2 (mulHi m P1) d
+  let (u3, d) := adc s3 (mulHi m P2) d
+  let (u4, d) := adc s4 (mulHi m P3) d
+  let (u5, d) := adc s5 (mulHi m P4) d
+  ⟨u1, u2, u3, u4, u5, t.w6 + c + mulHi m P5 + d⟩
 
 /-! Every operation comes in two forms: an `@[inline]` one (`mulI`,
 `addI`, …) for fused callers such as `Fp2`, where the intermediate

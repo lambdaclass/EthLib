@@ -54,6 +54,11 @@ lean_exe implbench where
   root := `ImplBench
   moreLeancArgs := #["-O3"]
 
+/-- Differential fuzzing: `EthLibImpl` against the `EthLib` spec. -/
+lean_exe implfuzz where
+  root := `ImplFuzz
+  moreLeancArgs := #["-O3"]
+
 /-- Proofs that `EthLibImpl` computes the spec's results. -/
 lean_lib «ImplProofs» where
   roots := #[`EthLibImpl.Cryptography.Proofs]
