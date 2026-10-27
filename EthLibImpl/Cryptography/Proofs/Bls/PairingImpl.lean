@@ -102,6 +102,7 @@ attribute [local simp] Fp2.toSpec_hAdd Fp2.toSpec_hSub Fp2.toSpec_hMul Fp2.toSpe
   TwistPoint.toSpec_mk TwistPoint.toSpec_x TwistPoint.toSpec_y TwistPoint.toSpec_z
   PairInput.toSpec_r TwistPoint.canonical_mk Line.toSpec_mk
 
+set_option maxHeartbeats 4000000 in
 theorem dblStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
     (ht : t.Canonical) :
     (dblStep pi t).1.Canonical ∧ (dblStep pi t).2.Canonical ∧
@@ -113,16 +114,17 @@ theorem dblStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
   rw [TwistPoint.toSpec_y, Fp2.isZero_eq hy]
   by_cases h : t.y.isZero = true
   · simp only [h, if_true]
-    obtain ⟨l1, l2⟩ := PairInput.line_spec hpi (Fp2.neg_canonical hy) hzero hz
+    obtain ⟨l1, l2⟩ := PairInput.line_spec hpi (Fp2.neg_canonical hy) hzero Fp2.one_canonical
     refine ⟨⟨?_, hy, hz⟩, l1, ?_, ?_⟩
     · exact Fp2.canonical_hNeg (Fp2.double_canonical hx)
     · simp (config := {maxDischargeDepth := 40}) [hx, hy, hz]
-    · rw [l2]; simp (config := {maxDischargeDepth := 40}) [hx, hy, hz]
+    · rw [l2]; simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, Fp2.toSpec_one]
   · simp only [h, Bool.false_eq_true, if_false]
     refine ⟨?_, ?_, ?_, ?_⟩ <;>
     simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hpi, PairInput.line_canonical,
       PairInput.toSpec_line]
 
+set_option maxHeartbeats 4000000 in
 theorem addStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
     (ht : t.Canonical) :
     (addStep pi t).1.Canonical ∧ (addStep pi t).2.Canonical ∧
@@ -132,12 +134,14 @@ theorem addStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
   obtain ⟨⟨hrx, hry, hrz⟩, hcx, hcy, hcz⟩ := hpi
   have hpi' : pi.Canonical := ⟨⟨hrx, hry, hrz⟩, hcx, hcy, hcz⟩
   have hzero := Fp2.zero_canonical
-  have hdd : (pi.r.x * t.z - t.x * pi.r.z).Canonical := by simp [hx, hz, hrx, hrz]
+  have hdd : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).Canonical := by simp (config := {maxDischargeDepth := 40}) [hx, hz, hrx, hrz]
+  have hde : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).toSpec
+      = pi.r.x.toSpec * (t.z.toSpec * t.z.toSpec) - t.x.toSpec * (pi.r.z.toSpec * pi.r.z.toSpec) := by
+    simp (config := {maxDischargeDepth := 40}) [hx, hz, hrx, hrz]
   unfold addStep Mirror.addStep
   simp only [PairInput.toSpec_r, TwistPoint.toSpec_x, TwistPoint.toSpec_y, TwistPoint.toSpec_z]
-  rw [← Fp2.toSpec_hMul hrx hz, ← Fp2.toSpec_hMul hx hrz, ← Fp2.toSpec_hSub (by simp [hrx, hz]) (by simp [hx, hrz])]
-  rw [Fp2.isZero_eq hdd]
-  by_cases h : (pi.r.x * t.z - t.x * pi.r.z).isZero = true
+  rw [← hde, Fp2.isZero_eq hdd]
+  by_cases h : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).isZero = true
   · simp only [h, if_true]
     refine ⟨?_, ?_, ?_, ?_⟩ <;>
     simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hrx, hry, hrz, hpi', PairInput.line_canonical,
@@ -359,31 +363,22 @@ theorem PairInput.ofPoints_spec {p : G1} {q : G2} (hp : p.Canonical) (hq : q.Can
   obtain ⟨hqx, hqy, hqz⟩ := hq
   have h1 := Fp2.one_canonical
   have h2 := Fp.one_canonical
-  have b2 : q.z.beq Fp2.one = (G2.toSpec q).z.beq EthLib.Cryptography.Bls.Fp2.one := by
-    rw [← Fp2.toSpec_one]; exact (Fp2.beq_eq hqz h1).symm
   have b1 : p.z.beq Fp.one = (G1.toSpec p).z.beq EthLib.Cryptography.Bls.Fp.one := by
     rw [G1.beq_eq hpz h2, Fp.val_one]; rfl
-  have mz2 : (q.z.sqr * q.z).Canonical := Fp2.mul_canonical (Fp2.sqr_canonical hqz) hqz
   have mz1 : (p.z.sqr * p.z).Canonical := Fp.mul_canonical _ hpz
-  have mx2 : (q.x * q.z).Canonical := Fp2.mul_canonical hqx hqz
   have mx1 : (p.x * p.z).Canonical := Fp.mul_canonical _ hpz
-  have vz2 : (q.z.sqr * q.z).toSpec = (G2.toSpec q).z * (G2.toSpec q).z * (G2.toSpec q).z := by
-    rw [Fp2.toSpec_hMul (Fp2.sqr_canonical hqz) hqz, Fp2.toSpec_sqr hqz]; rfl
-  have vx2 : (q.x * q.z).toSpec = (G2.toSpec q).x * (G2.toSpec q).z := by
-    rw [Fp2.toSpec_hMul hqx hqz]; rfl
   have vz1 : (p.z.sqr * p.z).val = (G1.toSpec p).z * (G1.toSpec p).z * (G1.toSpec p).z := by
     exact (Fp.val_mul _ hpz).trans (by rw [Fp.val_sqr hpz]; rfl)
   have vx1 : (p.x * p.z).val = (G1.toSpec p).x * (G1.toSpec p).z := by
     exact Fp.val_mul _ hpz
   unfold PairInput.ofPoints Mirror.PairInput.ofPoints
-  rw [b2, b1]
-  by_cases hb2 : (G2.toSpec q).z.beq EthLib.Cryptography.Bls.Fp2.one = true <;>
+  rw [b1]
   by_cases hb1 : (G1.toSpec p).z.beq EthLib.Cryptography.Bls.Fp.one = true <;>
-  simp only [hb1, hb2, if_true, if_false, Bool.false_eq_true] <;>
+  simp only [hb1, if_true, if_false, Bool.false_eq_true] <;>
   refine ⟨?_, ?_⟩ <;>
   simp only [PairInput.Canonical, TwistPoint.Canonical, PairInput.toSpec, TwistPoint.toSpec,
-    hpx, hpy, hpz, hqx, hqy, hqz, h1, h2, mz1, mz2, mx1, mx2, vz1, vz2, vx1, vx2, and_self,
-    Fp2.one_canonical, Fp.one_canonical, Fp2.toSpec_one, Fp.val_one] <;>
+    hpx, hpy, hpz, hqx, hqy, hqz, h2, mz1, mx1, vz1, vx1, and_self,
+    Fp.one_canonical, Fp.val_one] <;>
   rfl
 
 /-! ## Final exponentiation -/
