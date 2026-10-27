@@ -227,6 +227,11 @@ def curveTests (v : Vectors) (iters : Nat) : IO Unit := do
   report "G2 add/double/mulNat/compress/inSubgroup incl. order-13 points" ok2
   report "uncompress/keyValidate (same values and errors)" okC
 
+/-- The same group element: equal `isInfinity` and spec `toAffine`. `hashToG2` returns the
+spec's point up to Jacobian scaling, not the spec's triple. -/
+def sameG2Point (a : SG2) (b : SG2) : Bool :=
+  a.isInfinity == b.isInfinity && a.toAffine.1.beq b.toAffine.1 && a.toAffine.2.beq b.toAffine.2
+
 def hashTests (iters : Nat) : IO Unit := do
   let mut g : Rng := ⟨0xCAFEF00DCAFEF00D⟩
   let mut ok := true
@@ -237,8 +242,8 @@ def hashTests (iters : Nat) : IO Unit := do
                          EthLibImpl.Cryptography.Bls.Signatures.DST,
                        EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg
                          EthLib.Cryptography.Bls.Signatures.DST with
-      | .ok a, .ok b => eqG2 (toSG2 a) b | _, _ => false)
-  report "hashToG2 (exact triples)" ok
+      | .ok a, .ok b => sameG2Point (toSG2 a) b | _, _ => false)
+  report "hashToG2 (same point: isInfinity and toAffine)" ok
 
 def pairingTests (v : Vectors) : IO Unit := do
   let mut g : Rng := ⟨0x0DDBA11BADC0FFEE⟩

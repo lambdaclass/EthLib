@@ -640,79 +640,72 @@ theorem isoParts_spec {xp : Fp2} (hx : xp.Canonical) :
     Fp2.toSpec_hAdd hx3 hy1, Fp2.toSpec_hMul c42 hx2, Fp2.toSpec_hMul c41 hx, vx3, vx2,
     v10, v11, v12, v13, v20, v21, v30, v31, v32, v33, v40, v41, v42]
 
-theorem isoMapWith_spec {yp xn yn xi yi : Fp2} (hy : yp.Canonical) (hxn : xn.Canonical)
-    (hyn : yn.Canonical) (hxi : xi.Canonical) (hyi : yi.Canonical) :
-    PRel (isoMapWith yp xn yn xi yi)
-      (Mirror.HashToCurve.isoMapWith yp.toSpec xn.toSpec yn.toSpec xi.toSpec yi.toSpec) := by
-  have h1 := Fp2.canonical_hMul hxn hxi
-  have h2 := Fp2.canonical_hMul hy hyn
-  have h3 := Fp2.canonical_hMul h2 hyi
-  unfold isoMapWith Mirror.HashToCurve.isoMapWith
-  refine ⟨h1, h3, ?_⟩
-  show ((xn * xi).toSpec, (yp * yn * yi).toSpec) = _
-  rw [Fp2.toSpec_hMul hxn hxi, Fp2.toSpec_hMul h2 hyi, Fp2.toSpec_hMul hy hyn]
+/-- `isoMapJac` computes the mirror's. -/
+theorem isoMapJac_spec {xp yp : Fp2} (hx : xp.Canonical) (hy : yp.Canonical) :
+    (isoMapJac xp yp).Canonical ∧
+      G2.toSpec (isoMapJac xp yp) = Mirror.HashToCurve.isoMapJac xp.toSpec yp.toSpec := by
+  obtain ⟨i1, i2, i3, i4, iv⟩ := isoParts_spec hx
+  unfold isoMapJac Mirror.HashToCurve.isoMapJac
+  generalize isoParts xp = I at i1 i2 i3 i4 iv ⊢
+  rw [← iv]
+  obtain ⟨xNum, xDen, yNum, yDen⟩ := I
+  dsimp only at i1 i2 i3 i4 ⊢
+  have hc : (xDen.isZero || yDen.isZero) = (xDen.toSpec.isZero || yDen.toSpec.isZero) := by
+    rw [G2.isZero_eq i2, G2.isZero_eq i4]
+  by_cases hcond : (xDen.isZero || yDen.isZero) = true
+  · have hcs : (xDen.toSpec.isZero || yDen.toSpec.isZero) = true := by rw [← hc]; exact hcond
+    rw [if_pos hcond, if_pos hcs]
+    have j1 := Fp2.inverse_canonical i2
+    have j2 := Fp2.inverse_canonical i4
+    have h3 := Fp2.canonical_hMul hy i3
+    refine ⟨⟨Fp2.canonical_hMul i1 j1, Fp2.canonical_hMul h3 j2, Fp2.one_canonical⟩, ?_⟩
+    show (⟨(xNum * xDen.inverse).toSpec, (yp * yNum * yDen.inverse).toSpec,
+      Fp2.one.toSpec⟩ : EthLib.Cryptography.Bls.G2) = _
+    rw [Fp2.toSpec_hMul i1 j1, Fp2.toSpec_hMul h3 j2, Fp2.toSpec_hMul hy i3,
+      Fp2.toSpec_inverse i2, Fp2.toSpec_inverse i4, Fp2.toSpec_one]
+  · have hcs : ¬ (xDen.toSpec.isZero || yDen.toSpec.isZero) = true := by rw [← hc]; exact hcond
+    rw [if_neg hcond, if_neg hcs]
+    have hz := Fp2.canonical_hMul i2 i4
+    have hzy := Fp2.canonical_hMul hz i4
+    have hx2 := Fp2.sqr_canonical i2
+    have hq := Fp2.canonical_hMul hzy hx2
+    have h3 := Fp2.canonical_hMul hy i3
+    refine ⟨⟨Fp2.canonical_hMul i1 hzy, Fp2.canonical_hMul h3 hq, hz⟩, ?_⟩
+    show (⟨(xNum * (xDen * yDen * yDen)).toSpec, (yp * yNum * (xDen * yDen * yDen * xDen.sqr)).toSpec,
+      (xDen * yDen).toSpec⟩ : EthLib.Cryptography.Bls.G2) = _
+    rw [Fp2.toSpec_hMul i1 hzy, Fp2.toSpec_hMul h3 hq, Fp2.toSpec_hMul hy i3,
+      Fp2.toSpec_hMul hzy hx2, Fp2.toSpec_hMul hz i4, Fp2.toSpec_hMul i2 i4, Fp2.toSpec_sqr i2]
 
 
 /-! ## Cofactor clearing -/
 
-theorem toAffineWith_spec {P : G2} {zi : Fp2} (hP : G2.Canonical P) (hz : zi.Canonical) :
-    PRel (toAffineWith P zi)
-      (Mirror.HashToCurve.toAffineWith (G2.toSpec P) zi.toSpec) := by
-  obtain ⟨hx, hy, _⟩ := hP
-  have h2 := Fp2.sqr_canonical hz
-  have h3 := Fp2.canonical_hMul h2 hz
-  unfold toAffineWith Mirror.HashToCurve.toAffineWith
-  refine ⟨Fp2.canonical_hMul hx h2, Fp2.canonical_hMul hy h3, ?_⟩
-  show ((P.x * zi.sqr).toSpec, (P.y * (zi.sqr * zi)).toSpec) = _
-  rw [Fp2.toSpec_hMul hx h2, Fp2.toSpec_hMul hy h3, Fp2.toSpec_hMul h2 hz, Fp2.toSpec_sqr hz]
+/-- `psiJac` computes the mirror's. -/
+theorem psiJac_spec {P : G2} (hP : G2.Canonical P) :
+    (psiJac P).Canonical ∧
+      G2.toSpec (psiJac P) = Mirror.HashToCurve.psiJac (G2.toSpec P) := by
+  obtain ⟨hx, hy, hz⟩ := hP
+  obtain ⟨c1, v1⟩ := HashConst.c1Psi_spec
+  obtain ⟨c2, v2⟩ := HashConst.c2Psi_spec
+  have hcx := Fp2.conj_canonical hx
+  have hcy := Fp2.conj_canonical hy
+  refine ⟨⟨Fp2.canonical_hMul c1 hcx, Fp2.canonical_hMul c2 hcy, Fp2.conj_canonical hz⟩, ?_⟩
+  show (⟨(c1Psi * P.x.conj).toSpec, (c2Psi * P.y.conj).toSpec, P.z.conj.toSpec⟩ :
+    EthLib.Cryptography.Bls.G2) = _
+  rw [Fp2.toSpec_hMul c1 hcx, Fp2.toSpec_hMul c2 hcy, Fp2.toSpec_conj hx, Fp2.toSpec_conj hy,
+    Fp2.toSpec_conj hz, v1, v2]
   rfl
 
-theorem psiWith_spec {P : G2} {zi : Fp2} (hP : G2.Canonical P) (hz : zi.Canonical) :
-    (psiWith P zi).Canonical ∧
-      G2.toSpec (psiWith P zi) = Mirror.HashToCurve.psiWith (G2.toSpec P) zi.toSpec := by
-  have hs : (G2.toSpec P).z.isZero = P.z.isZero := (G2.isZero_eq hP.2.2).symm
-  obtain ⟨hAf1, hAf2, hAf3⟩ := toAffineWith_spec hP hz
-  unfold psiWith Mirror.HashToCurve.psiWith
-  rw [hs]
-  by_cases h : P.z.isZero = true
-  · rw [if_pos h, if_pos h]; exact ⟨hP, rfl⟩
-  · rw [if_neg h, if_neg h]
-    obtain ⟨c1, v1⟩ := HashConst.c1Psi_spec
-    obtain ⟨c2, v2⟩ := HashConst.c2Psi_spec
-    generalize toAffineWith P zi = pa at hAf1 hAf2 hAf3
-    generalize Mirror.HashToCurve.toAffineWith (G2.toSpec P) zi.toSpec = pa' at hAf3
-    subst hAf3
-    obtain ⟨x, y⟩ := pa
-    have hcx := Fp2.conj_canonical hAf1
-    have hcy := Fp2.conj_canonical hAf2
-    have hx' := Fp2.canonical_hMul c1 hcx
-    have hy' := Fp2.canonical_hMul c2 hcy
-    refine ⟨⟨hx', hy', Fp2.one_canonical⟩, ?_⟩
-    show (⟨(c1Psi * x.conj).toSpec, (c2Psi * y.conj).toSpec, Fp2.one.toSpec⟩ : EthLib.Cryptography.Bls.G2) = _
-    rw [Fp2.toSpec_hMul c1 hcx, Fp2.toSpec_hMul c2 hcy, Fp2.toSpec_conj hAf1, Fp2.toSpec_conj hAf2,
-      Fp2.toSpec_one, v1, v2]
-
-theorem psi2With_spec {P : G2} {zi : Fp2} (hP : G2.Canonical P) (hz : zi.Canonical) :
-    (psi2With P zi).Canonical ∧
-      G2.toSpec (psi2With P zi) = Mirror.HashToCurve.psi2With (G2.toSpec P) zi.toSpec := by
-  have hs : (G2.toSpec P).z.isZero = P.z.isZero := (G2.isZero_eq hP.2.2).symm
-  obtain ⟨hAf1, hAf2, hAf3⟩ := toAffineWith_spec hP hz
-  unfold psi2With Mirror.HashToCurve.psi2With
-  rw [hs]
-  by_cases h : P.z.isZero = true
-  · rw [if_pos h, if_pos h]; exact ⟨hP, rfl⟩
-  · rw [if_neg h, if_neg h]
-    obtain ⟨c1, v1⟩ := HashConst.c1Psi2_spec
-    generalize toAffineWith P zi = pa at hAf1 hAf2 hAf3
-    generalize Mirror.HashToCurve.toAffineWith (G2.toSpec P) zi.toSpec = pa' at hAf3
-    subst hAf3
-    obtain ⟨x, y⟩ := pa
-    have hx' := Fp2.canonical_hMul c1 hAf1
-    have hy' := Fp2.canonical_hNeg hAf2
-    refine ⟨⟨hx', hy', Fp2.one_canonical⟩, ?_⟩
-    show (⟨(c1Psi2 * x).toSpec, (-y).toSpec, Fp2.one.toSpec⟩ : EthLib.Cryptography.Bls.G2) = _
-    rw [Fp2.toSpec_hMul c1 hAf1, Fp2.toSpec_hNeg hAf2, Fp2.toSpec_one, v1]
-
+/-- `psi2Jac` computes the mirror's. -/
+theorem psi2Jac_spec {P : G2} (hP : G2.Canonical P) :
+    (psi2Jac P).Canonical ∧
+      G2.toSpec (psi2Jac P) = Mirror.HashToCurve.psi2Jac (G2.toSpec P) := by
+  obtain ⟨hx, hy, hz⟩ := hP
+  obtain ⟨c1, v1⟩ := HashConst.c1Psi2_spec
+  have e : psi2Jac P = ⟨c1Psi2 * P.x, -P.y, P.z⟩ := rfl
+  rw [e]
+  refine ⟨G2.canonical_mk.mpr ⟨Fp2.canonical_hMul c1 hx, Fp2.canonical_hNeg hy, hz⟩, ?_⟩
+  rw [G2.toSpec_mk, Fp2.toSpec_hMul c1 hx, Fp2.toSpec_hNeg hy, v1]
+  simp only [Mirror.HashToCurve.psi2Jac, G2.toSpec_x, G2.toSpec_y, G2.toSpec_z]
 
 theorem add_neg_spec {p q : G2} (hp : G2.Canonical p) (hq : G2.Canonical q) :
     (G2.add p (G2.neg q)).Canonical ∧
@@ -722,26 +715,17 @@ theorem add_neg_spec {p q : G2} (hp : G2.Canonical p) (hq : G2.Canonical q) :
   obtain ⟨c2, v2⟩ := G2.add_spec hp c1
   exact ⟨c2, by rw [v2, v1]⟩
 
-/-- `clearCofactor` computes the mirror's. -/
-theorem clearCofactor_spec {P : G2} (hP : G2.Canonical P) :
-    (clearCofactor P).Canonical ∧
-      G2.toSpec (clearCofactor P) = Mirror.HashToCurve.clearCofactor (G2.toSpec P) := by
+/-- `clearCofactorJac` computes the mirror's. -/
+theorem clearCofactorJac_spec {P : G2} (hP : G2.Canonical P) :
+    (clearCofactorJac P).Canonical ∧
+      G2.toSpec (clearCofactorJac P) = Mirror.HashToCurve.clearCofactorJac (G2.toSpec P) := by
   obtain ⟨ct1, vt1⟩ := HashConst.mulNegX_spec hP
   obtain ⟨cP2, vP2⟩ := G2.double_spec hP
-  obtain ⟨b1, b2, bv⟩ := Fp2.batchInverse2_spec hP.2.2 cP2.2.2
-  unfold clearCofactor Mirror.HashToCurve.clearCofactor
+  unfold clearCofactorJac Mirror.HashToCurve.clearCofactorJac
   dsimp only
   rw [← vt1, ← vP2]
-  have bv' : (_, _) = Mirror.HashToCurve.batchInverse2 (G2.toSpec P).z
-      (G2.toSpec (G2.double P)).z := bv
-  generalize Fp2.batchInverse2 P.z (G2.double P).z = br at b1 b2 bv' ⊢
-  generalize Mirror.HashToCurve.batchInverse2 (G2.toSpec P).z (G2.toSpec (G2.double P)).z = br'
-    at bv' ⊢
-  subst bv'
-  obtain ⟨zi, zi2⟩ := br
-  dsimp only at b1 b2 ⊢
-  obtain ⟨cA, vA⟩ := psi2With_spec cP2 b2
-  obtain ⟨cB, vB⟩ := psiWith_spec hP b1
+  obtain ⟨cA, vA⟩ := psi2Jac_spec cP2
+  obtain ⟨cB, vB⟩ := psiJac_spec hP
   obtain ⟨cC, vC⟩ := add_neg_spec cA cB
   obtain ⟨cD, vD⟩ := G2.add_spec ct1 cB
   obtain ⟨cE, vE⟩ := HashConst.mulNegX_spec cD
@@ -749,7 +733,7 @@ theorem clearCofactor_spec {P : G2} (hP : G2.Canonical P) :
   obtain ⟨cG, vG⟩ := add_neg_spec cF ct1
   obtain ⟨cH, vH⟩ := add_neg_spec cG hP
   refine ⟨cH, ?_⟩
-  rw [vH, vG, vF, vE, vD, vC, vA, vB, vt1, vP2]
+  rw [vH, vG, vF, vE, vD, vC, vA, vB]
 
 
 /-! ## The whole pipeline -/
@@ -778,15 +762,7 @@ def hashToG2G (sw : Fp2 → Fp2 → Fp2 → Fp2 → Fp2 × Fp2) (msg dst : ByteA
     simpleSwu.match_1 (fun _ => Except BlsError G2) (den0.batchInverse2 den1) fun di0 di1 =>
     simpleSwu.match_1 (fun _ => Except BlsError G2) (sw u0 zu0 den0 di0) fun x0 y0 =>
     simpleSwu.match_1 (fun _ => Except BlsError G2) (sw u1 zu1 den1 di1) fun x1 y1 =>
-    isoMapG2.match_1 (fun _ => Except BlsError G2) (isoParts x0) fun xn0 xd0 yn0 yd0 =>
-    isoMapG2.match_1 (fun _ => Except BlsError G2) (isoParts x1) fun xn1 xd1 yn1 yd1 =>
-    isoMapG2.match_1 (fun _ => Except BlsError G2) (xd0.batchInverse4 yd0 xd1 yd1)
-      fun xi0 yi0 xi1 yi1 =>
-    simpleSwu.match_1 (fun _ => Except BlsError G2) (isoMapWith y0 xn0 yn0 xi0 yi0) fun xa ya =>
-    simpleSwu.match_1 (fun _ => Except BlsError G2) (isoMapWith y1 xn1 yn1 xi1 yi1) fun xb yb =>
-    have p0 : G2 := { x := xa, y := ya, z := Fp2.one }
-    have p1 : G2 := { x := xb, y := yb, z := Fp2.one }
-    pure (clearCofactor (p0.add p1))
+    pure (clearCofactorJac (G2.add (isoMapJac x0 y0) (isoMapJac x1 y1)))
 
 theorem hashToG2_eq_G : hashToG2 = hashToG2G simpleSwuWith := rfl
 
@@ -800,37 +776,22 @@ def mirrorHashToG2G
   bind (EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 msg dst 2) fun us =>
     have u0 : EthLib.Cryptography.Bls.Fp2 := us[0]!
     have u1 : EthLib.Cryptography.Bls.Fp2 := us[1]!
-    Mirror.HashToCurve.psiWith.match_1
+    Mirror.HashToCurve.hashToG2.match_1
       (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (Mirror.HashToCurve.swuDenom u0)
       fun zu0 den0 =>
-    Mirror.HashToCurve.psiWith.match_1
+    Mirror.HashToCurve.hashToG2.match_1
       (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (Mirror.HashToCurve.swuDenom u1)
       fun zu1 den1 =>
-    Mirror.HashToCurve.psiWith.match_1
+    Mirror.HashToCurve.hashToG2.match_1
       (fun _ => Except BlsError EthLib.Cryptography.Bls.G2)
       (Mirror.HashToCurve.batchInverse2 den0 den1) fun di0 di1 =>
-    Mirror.HashToCurve.psiWith.match_1
+    Mirror.HashToCurve.hashToG2.match_1
       (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (sw u0 zu0 den0 di0) fun x0 y0 =>
-    Mirror.HashToCurve.psiWith.match_1
+    Mirror.HashToCurve.hashToG2.match_1
       (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (sw u1 zu1 den1 di1) fun x1 y1 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (Mirror.HashToCurve.isoParts x0)
-      fun xn0 xd0 yn0 yd0 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (Mirror.HashToCurve.isoParts x1)
-      fun xn1 xd1 yn1 yd1 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2)
-      (Mirror.HashToCurve.batchInverse4 xd0 yd0 xd1 yd1) fun xi0 yi0 xi1 yi1 =>
-    Mirror.HashToCurve.psiWith.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2)
-      (Mirror.HashToCurve.isoMapWith y0 xn0 yn0 xi0 yi0) fun xa ya =>
-    Mirror.HashToCurve.psiWith.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2)
-      (Mirror.HashToCurve.isoMapWith y1 xn1 yn1 xi1 yi1) fun xb yb =>
-    have p0 : EthLib.Cryptography.Bls.G2 := { x := xa, y := ya, z := EthLib.Cryptography.Bls.Fp2.one }
-    have p1 : EthLib.Cryptography.Bls.G2 := { x := xb, y := yb, z := EthLib.Cryptography.Bls.Fp2.one }
-    pure (Mirror.HashToCurve.clearCofactor (p0.add p1))
+    pure (Mirror.HashToCurve.clearCofactorJac
+      (EthLib.Cryptography.Bls.G2.add (Mirror.HashToCurve.isoMapJac x0 y0)
+        (Mirror.HashToCurve.isoMapJac x1 y1)))
 
 theorem mirror_hashToG2_eq_G :
     Mirror.HashToCurve.hashToG2 = mirrorHashToG2G Mirror.HashToCurve.simpleSwuWith := rfl
@@ -885,36 +846,20 @@ theorem hashToG2G_spec
     generalize sw u1 A1.1 A1.2 B.2 = W1 at w1' w2' wv' ⊢
     rw [← wv, ← wv']
     dsimp only
-    obtain ⟨i1, i2, i3, i4, iv⟩ := isoParts_spec w1
-    obtain ⟨j1, j2, j3, j4, jv⟩ := isoParts_spec w1'
-    generalize isoParts W0.1 = I0 at i1 i2 i3 i4 iv ⊢
-    generalize isoParts W1.1 = I1 at j1 j2 j3 j4 jv ⊢
-    rw [← iv, ← jv]
-    dsimp only
-    obtain ⟨k1, k2, k3, k4, kv⟩ := Fp2.batchInverse4_spec i2 i4 j2 j4
-    generalize I0.2.1.batchInverse4 I0.2.2.2 I1.2.1 I1.2.2.2 = C at k1 k2 k3 k4 kv ⊢
-    rw [← kv]
-    dsimp only
-    obtain ⟨m1, m2, mv⟩ := isoMapWith_spec w2 i1 i3 k1 k2
-    obtain ⟨n1, n2, nv⟩ := isoMapWith_spec w2' j1 j3 k3 k4
-    generalize isoMapWith W0.2 I0.1 I0.2.2.1 C.1 C.2.1 = M0 at m1 m2 mv ⊢
-    generalize isoMapWith W1.2 I1.1 I1.2.2.1 C.2.2.1 C.2.2.2 = M1 at n1 n2 nv ⊢
-    rw [← mv, ← nv]
-    dsimp only
-    have p0 : G2.Canonical ⟨M0.1, M0.2, Fp2.one⟩ := ⟨m1, m2, Fp2.one_canonical⟩
-    have p1 : G2.Canonical ⟨M1.1, M1.2, Fp2.one⟩ := ⟨n1, n2, Fp2.one_canonical⟩
-    obtain ⟨s1, sv⟩ := G2.add_spec p0 p1
-    obtain ⟨t1, tv⟩ := clearCofactor_spec s1
+    obtain ⟨m1, mv⟩ := isoMapJac_spec w1 w2
+    obtain ⟨n1, nv⟩ := isoMapJac_spec w1' w2'
+    obtain ⟨s1, sv⟩ := G2.add_spec m1 n1
+    obtain ⟨t1, tv⟩ := clearCofactorJac_spec s1
     refine ⟨?_, fun q hq => ?_⟩
     · show Except.ok (G2.toSpec _) = Except.ok _
-      rw [tv, sv, G2.toSpec_mk, G2.toSpec_mk, Fp2.toSpec_one]
+      rw [tv, sv, mv, nv]
     · have hq' := Except.ok.inj hq
       rw [← hq']
       exact t1
 
 
-/-- Main result: the implementation's `hashToG2` computes the mirror's, and its output is a
-canonical point. -/
+/-- The implementation's `hashToG2` computes the mirror's, and its output is a canonical
+point. -/
 theorem hashToG2_spec (msg dst : ByteArray) :
     (hashToG2 msg dst).map G2.toSpec = Mirror.HashToCurve.hashToG2 msg dst ∧
       ∀ q, hashToG2 msg dst = .ok q → G2.Canonical q := by
@@ -924,9 +869,30 @@ theorem hashToG2_spec (msg dst : ByteArray) :
   rw [hashToG2_eq_G, mirror_hashToG2_eq_G]
   exact h
 
-/-- The implementation's `hashToG2` computes the spec's `HashToCurve.hashToG2`. -/
-theorem hashToG2_eq_spec (msg dst : ByteArray) :
-    (hashToG2 msg dst).map G2.toSpec = EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst := by
-  rw [(hashToG2_spec msg dst).1, Mirror.HashToCurve.hashToG2_eq]
+/-- Main result: the implementation's `hashToG2` and the spec's `HashToCurve.hashToG2` fail
+with the same error, or both succeed with triples for the same point: the implementation's
+result is canonical, and the spec's triple is `G2.ProjEq` to its spec image (they differ by a
+Jacobian scaling). -/
+theorem hashToG2_rel_spec (msg dst : ByteArray) :
+    (∃ e, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst = .error e ∧
+        hashToG2 msg dst = .error e) ∨
+      ∃ P q, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst = .ok P ∧
+        hashToG2 msg dst = .ok q ∧ G2.Canonical q ∧
+        EthLib.Cryptography.Bls.G2.ProjEq P (G2.toSpec q) := by
+  obtain ⟨hm, hc⟩ := hashToG2_spec msg dst
+  rcases Mirror.HashToCurve.hashToG2_rel msg dst with ⟨e, hs, hmir⟩ | ⟨P, Q, hs, hmir, hp⟩
+  · refine Or.inl ⟨e, hs, ?_⟩
+    rw [hmir] at hm
+    cases h : hashToG2 msg dst with
+    | error e' => rw [h] at hm; exact congrArg Except.error (Except.error.inj hm)
+    | ok q => rw [h] at hm; cases hm
+  · right
+    rw [hmir] at hm
+    cases h : hashToG2 msg dst with
+    | error e' => rw [h] at hm; cases hm
+    | ok q =>
+      rw [h] at hm
+      have hq : G2.toSpec q = Q := Except.ok.inj hm
+      exact ⟨P, q, hs, rfl, hc q h, hq ▸ hp⟩
 
 end EthLibImpl.Cryptography.Bls.HashToCurve
