@@ -36,10 +36,10 @@ open Fp2 (addI subI negI doubleI mulByXiI)
 local notation "mulI" => Fp2.mul
 local notation "sqrI" => Fp2.sqr
 
-def add (a b : Fp6) : Fp6 := ⟨addI a.c0 b.c0, addI a.c1 b.c1, addI a.c2 b.c2⟩
-def sub (a b : Fp6) : Fp6 := ⟨subI a.c0 b.c0, subI a.c1 b.c1, subI a.c2 b.c2⟩
-def neg (a : Fp6) : Fp6 := ⟨negI a.c0, negI a.c1, negI a.c2⟩
-def double (a : Fp6) : Fp6 := ⟨doubleI a.c0, doubleI a.c1, doubleI a.c2⟩
+@[inline] def add (a b : Fp6) : Fp6 := ⟨addI a.c0 b.c0, addI a.c1 b.c1, addI a.c2 b.c2⟩
+@[inline] def sub (a b : Fp6) : Fp6 := ⟨subI a.c0 b.c0, subI a.c1 b.c1, subI a.c2 b.c2⟩
+@[inline] def neg (a : Fp6) : Fp6 := ⟨negI a.c0, negI a.c1, negI a.c2⟩
+@[inline] def double (a : Fp6) : Fp6 := ⟨doubleI a.c0, doubleI a.c1, doubleI a.c2⟩
 
 /-- The spec's product (Karatsuba-style, six `Fp2` multiplications). -/
 def mul (a b : Fp6) : Fp6 :=
@@ -69,7 +69,7 @@ instance : Neg Fp6 := ⟨neg⟩
 @[inline] def isZero (a : Fp6) : Bool := a.c0.isZero && a.c1.isZero && a.c2.isZero
 
 /-- Multiplication by `v`: `ξ·c2 + c0·v + c1·v²`. -/
-def mulByV (a : Fp6) : Fp6 := ⟨mulByXiI a.c2, a.c0, a.c1⟩
+@[inline] def mulByV (a : Fp6) : Fp6 := ⟨mulByXiI a.c2, a.c0, a.c1⟩
 
 /-- Multiply by an `Fp2` scalar. -/
 def mulFp2 (a : Fp6) (s : Fp2) : Fp6 := ⟨mulI a.c0 s, mulI a.c1 s, mulI a.c2 s⟩

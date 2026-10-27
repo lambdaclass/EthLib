@@ -69,16 +69,20 @@ definition. -/
 @[inline] def negI (a : Fp2) : Fp2 := mk (Fp.negI a.c0) (Fp.negI a.c1)
 @[inline] def doubleI (a : Fp2) : Fp2 := mk (Fp.doubleI a.c0) (Fp.doubleI a.c1)
 
-/-- Karatsuba: `(a0 + a1 i)(b0 + b1 i)` with three base products. -/
+/-- Karatsuba with lazy reduction: `(a0 + a1 i)(b0 + b1 i)` from three
+wide products and two Montgomery reductions. The real part
+`a0·b0 − a1·b1` gets `p·R` added when negative; the imaginary part
+`(a0 + a1)(b0 + b1) − a0·b0 − a1·b1 = a0·b1 + a1·b0` is exact and below
+`2p²`, with the sums `a0 + a1`, `b0 + b1` left unreduced (below `2p`). -/
 @[inline] def mulI (a b : Fp2) : Fp2 :=
   let a0 := a.c0
   let a1 := a.c1
   let b0 := b.c0
   let b1 := b.c1
-  let t0 := Fp.mulI a0 b0
-  let t1 := Fp.mulI a1 b1
-  let t2 := Fp.mulI (Fp.addI a0 a1) (Fp.addI b0 b1)
-  mk (Fp.subI t0 t1) (Fp.subI (Fp.subI t2 t0) t1)
+  let t0 := Fp.mulWide a0 b0
+  let t1 := Fp.mulWide a1 b1
+  let t2 := Fp.mulWide (Fp.addRaw a0 a1) (Fp.addRaw b0 b1)
+  mk (Fp.redc (Fp.subWideModPR t0 t1)) (Fp.redc (Fp.sub12 (Fp.sub12 t2 t0).1 t1).1)
 
 /-- `(a0 + a1 i)² = (a0 + a1)(a0 − a1) + 2·a0·a1·i`. -/
 @[inline] def sqrI (a : Fp2) : Fp2 :=
@@ -93,13 +97,13 @@ definition. -/
   let a1 := a.c1
   mk (Fp.subI a0 a1) (Fp.addI a0 a1)
 
-def add (a b : Fp2) : Fp2 := addI a b
-def sub (a b : Fp2) : Fp2 := subI a b
-def neg (a : Fp2) : Fp2 := negI a
-def double (a : Fp2) : Fp2 := doubleI a
+@[inline] def add (a b : Fp2) : Fp2 := addI a b
+@[inline] def sub (a b : Fp2) : Fp2 := subI a b
+@[inline] def neg (a : Fp2) : Fp2 := negI a
+@[inline] def double (a : Fp2) : Fp2 := doubleI a
 def mul (a b : Fp2) : Fp2 := mulI a b
 def sqr (a : Fp2) : Fp2 := sqrI a
-def mulByXi (a : Fp2) : Fp2 := mulByXiI a
+@[inline] def mulByXi (a : Fp2) : Fp2 := mulByXiI a
 
 /-- Multiply by a base-field scalar. -/
 def mulFp (a : Fp2) (s : Fp) : Fp2 := mk (Fp.mulI a.c0 s) (Fp.mulI a.c1 s)
@@ -114,7 +118,7 @@ instance : Neg Fp2 := ⟨neg⟩
 instance : BEq Fp2 := ⟨beq⟩
 
 /-- Conjugation `c0 + c1 i ↦ c0 − c1 i`, which is also the Frobenius map. -/
-def conj (a : Fp2) : Fp2 := mk a.c0 (Fp.negI a.c1)
+@[inline] def conj (a : Fp2) : Fp2 := mk a.c0 (Fp.negI a.c1)
 
 /-- Spec `Fp2.inverse`: `(c0 − c1 i) / (c0² + c1²)`. -/
 def inverse (a : Fp2) : Fp2 :=

@@ -1548,4 +1548,335 @@ theorem ofBytes64BE_spec (b : ByteArray) (off : Nat) (h : off + 64 ≤ b.size) :
   generalize (2 : Z) ^ (8 * 32) = T
   linear_combination ((A.raw : Z) * T + C.raw) * hr
 
+/-! ## Wide products and lazy reduction
+
+Proofs for `mulWide`, `addRaw`, `redc`, `sub12` and `subWideModPR`, which
+`Fp2.mulI` composes into a lazily reduced Karatsuba product. -/
+
+/-- The low six words of a twelve-word value. -/
+def W12.lo (t : W12) : Fp := ⟨t.w0, t.w1, t.w2, t.w3, t.w4, t.w5⟩
+
+/-- The high six words of a twelve-word value. -/
+def W12.hi (t : W12) : Fp := ⟨t.w6, t.w7, t.w8, t.w9, t.w10, t.w11⟩
+
+/-- The integer twelve words spell. -/
+def W12.val (t : W12) : Nat := t.lo.raw + 2 ^ 384 * t.hi.raw
+
+/-- Twelve words from two halves. -/
+def W12.ofHalves (l h : Fp) : W12 :=
+  ⟨l.l0, l.l1, l.l2, l.l3, l.l4, l.l5, h.l0, h.l1, h.l2, h.l3, h.l4, h.l5⟩
+
+theorem W12.val_ofHalves (l h : Fp) : (W12.ofHalves l h).val = l.raw + 2 ^ 384 * h.raw := rfl
+
+theorem W12.val_lt (t : W12) : t.val < 2 ^ 768 := by
+  have := raw_lt t.lo
+  have := raw_lt t.hi
+  unfold W12.val
+  omega
+
+theorem Acc7.val_split (r : Acc7) :
+    r.val = r.w0.toNat + 2 ^ 64 * (⟨r.w1, r.w2, r.w3, r.w4, r.w5, r.w6⟩ : Fp).raw := rfl
+
+/-- `mulWide` is the exact 768-bit product. -/
+theorem mulWide_val (a b : Fp) : (mulWide a b).val = a.raw * b.raw := by
+  simp only [mulWide]
+  have e0 := mulRow_val zero a.l0 b
+  have s0 := Acc7.val_split (mulRow zero a.l0 b)
+  generalize mulRow zero a.l0 b = r0 at *
+  have e1 := mulRow_val ⟨r0.w1, r0.w2, r0.w3, r0.w4, r0.w5, r0.w6⟩ a.l1 b
+  have s1 := Acc7.val_split (mulRow ⟨r0.w1, r0.w2, r0.w3, r0.w4, r0.w5, r0.w6⟩ a.l1 b)
+  generalize mulRow ⟨r0.w1, r0.w2, r0.w3, r0.w4, r0.w5, r0.w6⟩ a.l1 b = r1 at *
+  have e2 := mulRow_val ⟨r1.w1, r1.w2, r1.w3, r1.w4, r1.w5, r1.w6⟩ a.l2 b
+  have s2 := Acc7.val_split (mulRow ⟨r1.w1, r1.w2, r1.w3, r1.w4, r1.w5, r1.w6⟩ a.l2 b)
+  generalize mulRow ⟨r1.w1, r1.w2, r1.w3, r1.w4, r1.w5, r1.w6⟩ a.l2 b = r2 at *
+  have e3 := mulRow_val ⟨r2.w1, r2.w2, r2.w3, r2.w4, r2.w5, r2.w6⟩ a.l3 b
+  have s3 := Acc7.val_split (mulRow ⟨r2.w1, r2.w2, r2.w3, r2.w4, r2.w5, r2.w6⟩ a.l3 b)
+  generalize mulRow ⟨r2.w1, r2.w2, r2.w3, r2.w4, r2.w5, r2.w6⟩ a.l3 b = r3 at *
+  have e4 := mulRow_val ⟨r3.w1, r3.w2, r3.w3, r3.w4, r3.w5, r3.w6⟩ a.l4 b
+  have s4 := Acc7.val_split (mulRow ⟨r3.w1, r3.w2, r3.w3, r3.w4, r3.w5, r3.w6⟩ a.l4 b)
+  generalize mulRow ⟨r3.w1, r3.w2, r3.w3, r3.w4, r3.w5, r3.w6⟩ a.l4 b = r4 at *
+  have e5 := mulRow_val ⟨r4.w1, r4.w2, r4.w3, r4.w4, r4.w5, r4.w6⟩ a.l5 b
+  have s5 := Acc7.val_split (mulRow ⟨r4.w1, r4.w2, r4.w3, r4.w4, r4.w5, r4.w6⟩ a.l5 b)
+  generalize mulRow ⟨r4.w1, r4.w2, r4.w3, r4.w4, r4.w5, r4.w6⟩ a.l5 b = r5 at *
+  rw [zero_raw] at e0
+  generalize hB : b.raw = B at *
+  have hA : a.raw * B = a.l0.toNat * B + 2^64 * (a.l1.toNat * B + 2^64 * (a.l2.toNat * B +
+      2^64 * (a.l3.toNat * B + 2^64 * (a.l4.toNat * B + 2^64 * (a.l5.toNat * B))))) := by
+    simp only [raw]; ring
+  rw [hA]
+  clear hA
+  simp only [W12.val, W12.lo, W12.hi, raw] at *
+  generalize a.l0.toNat * B = X0 at *
+  generalize a.l1.toNat * B = X1 at *
+  generalize a.l2.toNat * B = X2 at *
+  generalize a.l3.toNat * B = X3 at *
+  generalize a.l4.toNat * B = X4 at *
+  generalize a.l5.toNat * B = X5 at *
+  omega
+
+theorem addRaw_eq (a b : Fp) : addRaw a b = (adc6 a b).1 := rfl
+
+/-- `addRaw` is exact when the sum fits in 384 bits. -/
+theorem addRaw_raw {a b : Fp} (h : a.raw + b.raw < 2 ^ 384) :
+    (addRaw a b).raw = a.raw + b.raw := by
+  rw [addRaw_eq]
+  obtain ⟨h1, h2⟩ := adc6_spec a b
+  have := raw_lt (adc6 a b).1
+  omega
+
+/-- One Montgomery reduction row on a 384-bit value: divides by `2^64` after
+adding a multiple `m·p` of the modulus. -/
+theorem redStep (x : Fp) : ∃ m : Nat, m < 2 ^ 64 ∧
+    (redRow ⟨x.l0, x.l1, x.l2, x.l3, x.l4, x.l5, 0⟩).raw * 2 ^ 64 = x.raw + m * modulus := by
+  have hx := raw_lt x
+  have hp := modulus_lt_381
+  have hv : Acc7.val ⟨x.l0, x.l1, x.l2, x.l3, x.l4, x.l5, 0⟩ = x.raw := by
+    simp only [Acc7.val, raw, UInt64.toNat_zero]; omega
+  have hm := (x.l0 * N0).toNat_lt
+  have hmp : (x.l0 * N0).toNat * modulus ≤ (2 ^ 64 - 1) * modulus :=
+    Nat.mul_le_mul_right _ (by omega)
+  have hside : Acc7.val ⟨x.l0, x.l1, x.l2, x.l3, x.l4, x.l5, 0⟩ +
+      (x.l0 * N0).toNat * modulus < 2 ^ 448 := by
+    rw [hv]; omega
+  refine ⟨(x.l0 * N0).toNat, hm, ?_⟩
+  have h := redRow_spec ⟨x.l0, x.l1, x.l2, x.l3, x.l4, x.l5, 0⟩ hside
+  rw [hv] at h
+  exact h
+
+/-- `redc` divides a value below `p · R` by `R`, modulo `p`, canonically. -/
+theorem redc_spec (t : W12) (h : t.val < modulus * 2 ^ 384) :
+    Canonical (redc t) ∧ ((redc t).raw : Z) * 2 ^ 384 = (t.val : Z) := by
+  have hlo := raw_lt t.lo
+  have hhi : t.hi.raw < modulus := by unfold W12.val at h; omega
+  have hH : (⟨t.w6, t.w7, t.w8, t.w9, t.w10, t.w11⟩ : Fp) = t.hi := rfl
+  simp only [redc]
+  rw [hH]
+  obtain ⟨m0, hm0, e0⟩ := redStep ⟨t.w0, t.w1, t.w2, t.w3, t.w4, t.w5⟩
+  have e0' : (redRow ⟨t.w0, t.w1, t.w2, t.w3, t.w4, t.w5, 0⟩).raw * 2 ^ 64 =
+      t.lo.raw + m0 * modulus := e0
+  clear e0
+  generalize redRow ⟨t.w0, t.w1, t.w2, t.w3, t.w4, t.w5, 0⟩ = V1 at *
+  obtain ⟨m1, hm1, e1⟩ := redStep V1
+  generalize redRow ⟨V1.l0, V1.l1, V1.l2, V1.l3, V1.l4, V1.l5, 0⟩ = V2 at *
+  obtain ⟨m2, hm2, e2⟩ := redStep V2
+  generalize redRow ⟨V2.l0, V2.l1, V2.l2, V2.l3, V2.l4, V2.l5, 0⟩ = V3 at *
+  obtain ⟨m3, hm3, e3⟩ := redStep V3
+  generalize redRow ⟨V3.l0, V3.l1, V3.l2, V3.l3, V3.l4, V3.l5, 0⟩ = V4 at *
+  obtain ⟨m4, hm4, e4⟩ := redStep V4
+  generalize redRow ⟨V4.l0, V4.l1, V4.l2, V4.l3, V4.l4, V4.l5, 0⟩ = V5 at *
+  obtain ⟨m5, hm5, e5⟩ := redStep V5
+  generalize redRow ⟨V5.l0, V5.l1, V5.l2, V5.l3, V5.l4, V5.l5, 0⟩ = V6 at *
+  have hM : (m0 + 2^64 * (m1 + 2^64 * (m2 + 2^64 * (m3 + 2^64 * (m4 + 2^64 * m5))))) * modulus =
+      m0 * modulus + 2^64 * (m1 * modulus + 2^64 * (m2 * modulus + 2^64 * (m3 * modulus +
+      2^64 * (m4 * modulus + 2^64 * (m5 * modulus))))) := by ring
+  have hT : V6.raw * 2 ^ 384 = t.lo.raw +
+      (m0 + 2^64 * (m1 + 2^64 * (m2 + 2^64 * (m3 + 2^64 * (m4 + 2^64 * m5))))) * modulus := by
+    rw [hM]
+    generalize m0 * modulus = k0 at *
+    generalize m1 * modulus = k1 at *
+    generalize m2 * modulus = k2 at *
+    generalize m3 * modulus = k3 at *
+    generalize m4 * modulus = k4 at *
+    generalize m5 * modulus = k5 at *
+    omega
+  have hMb : m0 + 2^64 * (m1 + 2^64 * (m2 + 2^64 * (m3 + 2^64 * (m4 + 2^64 * m5)))) ≤
+      2 ^ 384 - 1 := by omega
+  generalize m0 + 2^64 * (m1 + 2^64 * (m2 + 2^64 * (m3 + 2^64 * (m4 + 2^64 * m5)))) = M at *
+  have hMp : M * modulus ≤ (2 ^ 384 - 1) * modulus := Nat.mul_le_mul_right _ hMb
+  have hV6 : V6.raw ≤ modulus := by
+    by_contra hc
+    have : (modulus + 1) * 2 ^ 384 ≤ V6.raw * 2 ^ 384 := Nat.mul_le_mul_right _ (by omega)
+    omega
+  have hsm := modulus_lt_381
+  have hadd := addRaw_raw (a := V6) (b := t.hi) (by omega)
+  have hlt : (addRaw V6 t.hi).raw < 2 * modulus := by rw [hadd]; omega
+  refine ⟨reduceOnce_canonical _ hlt, ?_⟩
+  rw [reduceOnce_raw _ hlt, hadd, natCast_raw_mod]
+  have hz := congrArg (fun n : Nat => (n : Z)) hT
+  simp only [Nat.cast_add, Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat, natCast_modulus,
+    mul_zero, add_zero] at hz
+  simp only [W12.val, Nat.cast_add, Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat]
+  set_option exponentiation.threshold 512 in linear_combination hz
+
+/-- Six-word subtraction with an incoming borrow. -/
+def sbb6c (x y : Fp) (c : UInt64) : Fp × UInt64 :=
+  let r0 := sbb x.l0 y.l0 c
+  let r1 := sbb x.l1 y.l1 r0.2
+  let r2 := sbb x.l2 y.l2 r1.2
+  let r3 := sbb x.l3 y.l3 r2.2
+  let r4 := sbb x.l4 y.l4 r3.2
+  let r5 := sbb x.l5 y.l5 r4.2
+  (⟨r0.1, r1.1, r2.1, r3.1, r4.1, r5.1⟩, r5.2)
+
+theorem sbb6c_spec (x y : Fp) (c : UInt64) (hc : c.toNat ≤ 1) :
+    (sbb6c x y c).1.raw + y.raw + c.toNat = x.raw + 2 ^ 384 * (sbb6c x y c).2.toNat ∧
+      (sbb6c x y c).2.toNat ≤ 1 := by
+  have h0 := sbb_spec x.l0 y.l0 c hc
+  have h1 := sbb_spec x.l1 y.l1 _ h0.2
+  have h2 := sbb_spec x.l2 y.l2 _ h1.2
+  have h3 := sbb_spec x.l3 y.l3 _ h2.2
+  have h4 := sbb_spec x.l4 y.l4 _ h3.2
+  have h5 := sbb_spec x.l5 y.l5 _ h4.2
+  simp only [sbb6c, raw] at *
+  omega
+
+theorem sub12_eq (a b : W12) : sub12 a b =
+    (W12.ofHalves (sbb6c a.lo b.lo 0).1 (sbb6c a.hi b.hi (sbb6c a.lo b.lo 0).2).1,
+     (sbb6c a.hi b.hi (sbb6c a.lo b.lo 0).2).2) := rfl
+
+/-- `sub12` is subtraction modulo `2^768`, with the final borrow. -/
+theorem sub12_spec (a b : W12) :
+    (sub12 a b).1.val + b.val = a.val + 2 ^ 768 * (sub12 a b).2.toNat ∧
+      (sub12 a b).2.toNat ≤ 1 := by
+  rw [sub12_eq]
+  obtain ⟨l1, l2⟩ := sbb6c_spec a.lo b.lo 0 (by decide)
+  obtain ⟨h1, h2⟩ := sbb6c_spec a.hi b.hi _ l2
+  generalize sbb6c a.lo b.lo 0 = L at *
+  generalize sbb6c a.hi b.hi L.2 = H at *
+  simp only [W12.val_ofHalves] at *
+  simp only [W12.val, UInt64.toNat_zero] at *
+  omega
+
+/-- No borrow when `b ≤ a`. -/
+theorem sub12_exact (a b : W12) (h : b.val ≤ a.val) :
+    (sub12 a b).1.val + b.val = a.val := by
+  obtain ⟨s1, s2⟩ := sub12_spec a b
+  have := W12.val_lt (sub12 a b).1
+  omega
+
+theorem subWideModPR_eq (a b : W12) : subWideModPR a b =
+    W12.ofHalves (sub12 a b).1.lo
+      (adc6 (sub12 a b).1.hi (maskP (0 - (sub12 a b).2))).1 := rfl
+
+/-- `subWideModPR` is `a - b`, plus `p · R` exactly when that borrows. -/
+theorem subWideModPR_spec (a b : W12) (ha : a.val < modulus * 2 ^ 384)
+    (_hb : b.val < modulus * 2 ^ 384) :
+    (subWideModPR a b).val < modulus * 2 ^ 384 ∧
+    (a.val < b.val → (subWideModPR a b).val + b.val = a.val + modulus * 2 ^ 384) ∧
+    (b.val ≤ a.val → (subWideModPR a b).val + b.val = a.val) := by
+  obtain ⟨s1, s2⟩ := sub12_spec a b
+  have hd := W12.val_lt (sub12 a b).1
+  rw [subWideModPR_eq, W12.val_ofHalves]
+  generalize sub12 a b = r at *
+  obtain ⟨d, br⟩ := r
+  simp only at s1 s2 hd ⊢
+  have hdl := raw_lt d.lo
+  have hdh := raw_lt d.hi
+  have hdv : d.val = d.lo.raw + 2 ^ 384 * d.hi.raw := rfl
+  rcases eq_zero_or_one s2 with rfl | rfl
+  · rw [show (0 : UInt64) - 0 = 0 from rfl, maskP_zero]
+    obtain ⟨c1, -⟩ := adc6_spec d.hi zero
+    have := raw_lt (adc6 d.hi zero).1
+    rw [zero_raw] at c1
+    have z0 : (0 : UInt64).toNat = 0 := rfl
+    have e : (adc6 d.hi zero).1.raw = d.hi.raw := by omega
+    rw [e]
+    have z0 : (0 : UInt64).toNat = 0 := rfl
+    omega
+  · rw [maskP_ones]
+    obtain ⟨c1, c2⟩ := adc6_spec d.hi Pw
+    have := raw_lt (adc6 d.hi Pw).1
+    rw [Pw_raw] at c1
+    have z1 : (1 : UInt64).toNat = 1 := rfl
+    omega
+
+/-- The wide product of canonical vectors is below `p · R`. -/
+theorem mulWide_lt {a b : Fp} (ha : Canonical a) (_hb : Canonical b) :
+    (mulWide a b).val < modulus * 2 ^ 384 := by
+  rw [mulWide_val]
+  have hbR := raw_lt b
+  have hp : 0 < modulus := by decide
+  unfold Canonical at ha
+  calc a.raw * b.raw ≤ a.raw * 2 ^ 384 := Nat.mul_le_mul_left _ hbR.le
+    _ < modulus * 2 ^ 384 := Nat.mul_lt_mul_of_pos_right ha (by positivity)
+
+/-- The real part of the lazy Karatsuba product: in range, and congruent to
+`a0·b0 - a1·b1` modulo `p`. -/
+theorem lazy_re {a0 a1 b0 b1 : Fp} (ha0 : Canonical a0) (ha1 : Canonical a1)
+    (hb0 : Canonical b0) (hb1 : Canonical b1) :
+    (subWideModPR (mulWide a0 b0) (mulWide a1 b1)).val < modulus * 2 ^ 384 ∧
+    (((subWideModPR (mulWide a0 b0) (mulWide a1 b1)).val : Nat) : Z) =
+      (a0.raw : Z) * b0.raw - (a1.raw : Z) * b1.raw := by
+  have h0 := mulWide_lt ha0 hb0
+  have h1 := mulWide_lt ha1 hb1
+  obtain ⟨hl, e1, e2⟩ := subWideModPR_spec _ _ h0 h1
+  refine ⟨hl, ?_⟩
+  have v0 := mulWide_val a0 b0
+  have v1 := mulWide_val a1 b1
+  generalize mulWide a0 b0 = T0 at *
+  generalize mulWide a1 b1 = T1 at *
+  generalize subWideModPR T0 T1 = W at *
+  rcases Nat.lt_or_ge T0.val T1.val with h | h
+  · have e := e1 h
+    rw [v0, v1] at e
+    have z := congrArg (fun n : Nat => (n : Z)) e
+    simp only [Nat.cast_add, Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat, natCast_modulus,
+      zero_mul, add_zero] at z
+    linear_combination z
+  · have e := e2 h
+    rw [v0, v1] at e
+    have z := congrArg (fun n : Nat => (n : Z)) e
+    simp only [Nat.cast_add, Nat.cast_mul] at z
+    linear_combination z
+
+/-- The imaginary part of the lazy Karatsuba product is exact. -/
+theorem lazy_im {a0 a1 b0 b1 : Fp} (ha0 : Canonical a0) (ha1 : Canonical a1)
+    (hb0 : Canonical b0) (hb1 : Canonical b1) :
+    (sub12 (sub12 (mulWide (addRaw a0 a1) (addRaw b0 b1)) (mulWide a0 b0)).1
+      (mulWide a1 b1)).1.val = a0.raw * b1.raw + a1.raw * b0.raw ∧
+    (sub12 (sub12 (mulWide (addRaw a0 a1) (addRaw b0 b1)) (mulWide a0 b0)).1
+      (mulWide a1 b1)).1.val < modulus * 2 ^ 384 := by
+  unfold Canonical at *
+  have hp := modulus_lt_381
+  have sa : (addRaw a0 a1).raw = a0.raw + a1.raw := addRaw_raw (by omega)
+  have sb : (addRaw b0 b1).raw = b0.raw + b1.raw := addRaw_raw (by omega)
+  have v0 := mulWide_val a0 b0
+  have v1 := mulWide_val a1 b1
+  have v2 := mulWide_val (addRaw a0 a1) (addRaw b0 b1)
+  rw [sa, sb] at v2
+  have hx : (a0.raw + a1.raw) * (b0.raw + b1.raw) =
+      a0.raw * b0.raw + a0.raw * b1.raw + a1.raw * b0.raw + a1.raw * b1.raw := by ring
+  rw [hx] at v2
+  have q01 : a0.raw * b1.raw ≤ modulus * modulus := Nat.mul_le_mul ha0.le hb1.le
+  have q10 : a1.raw * b0.raw ≤ modulus * modulus := Nat.mul_le_mul ha1.le hb0.le
+  have hpp : modulus * modulus + modulus * modulus < modulus * 2 ^ 384 := by
+    have h2 : 2 * modulus < 2 ^ 384 := by omega
+    have h3 := Nat.mul_lt_mul_of_pos_left h2 (show 0 < modulus by decide)
+    have h4 : modulus * (2 * modulus) = modulus * modulus + modulus * modulus := by ring
+    omega
+  generalize mulWide a0 b0 = T0 at *
+  generalize mulWide a1 b1 = T1 at *
+  generalize mulWide (addRaw a0 a1) (addRaw b0 b1) = T2 at *
+  generalize a0.raw * b0.raw = P00 at *
+  generalize a0.raw * b1.raw = P01 at *
+  generalize a1.raw * b0.raw = P10 at *
+  generalize a1.raw * b1.raw = P11 at *
+  have f1 := sub12_exact T2 T0 (by omega)
+  generalize sub12 T2 T0 = D1 at *
+  have f2 := sub12_exact D1.1 T1 (by omega)
+  generalize sub12 D1.1 T1 = D2 at *
+  omega
+
+/-- A product law from a `ZMod` fact about raw integers: `c·R = a0·b0 - a1·b1`. -/
+theorem val_sub_mul_of {c a0 b0 a1 b1 : Fp}
+    (h : (c.raw : Z) * (2 : Z) ^ 384 = (a0.raw : Z) * b0.raw - (a1.raw : Z) * b1.raw) :
+    c.val = a0.val * b0.val - a1.val * b1.val := by
+  apply toZMod.injective
+  rw [toZMod_sub, toZMod_mul, toZMod_mul, toZ_val, toZ_val, toZ_val, toZ_val, toZ_val]
+  have hr := toZ_rInv
+  generalize toZMod rInv = ri at *
+  generalize (2 : Z) ^ 384 = R at *
+  linear_combination ri ^ 2 * h - (c.raw : Z) * ri * hr
+
+/-- A product law from a `ZMod` fact about raw integers: `c·R = a0·b1 + a1·b0`. -/
+theorem val_add_mul_of {c a0 b1 a1 b0 : Fp}
+    (h : (c.raw : Z) * (2 : Z) ^ 384 = (a0.raw : Z) * b1.raw + (a1.raw : Z) * b0.raw) :
+    c.val = a0.val * b1.val + a1.val * b0.val := by
+  apply toZMod.injective
+  rw [map_add, toZMod_mul, toZMod_mul, toZ_val, toZ_val, toZ_val, toZ_val, toZ_val]
+  have hr := toZ_rInv
+  generalize toZMod rInv = ri at *
+  generalize (2 : Z) ^ 384 = R at *
+  linear_combination ri ^ 2 * h - (c.raw : Z) * ri * hr
+
 end EthLibImpl.Cryptography.Bls.Fp

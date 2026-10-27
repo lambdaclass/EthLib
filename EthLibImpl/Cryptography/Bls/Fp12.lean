@@ -25,6 +25,11 @@ spec's):
 
 namespace EthLibImpl.Cryptography.Bls
 
+-- The products below inline the `Fp6` and `Fp2` additions, which takes the
+-- compiler past the default recursion limit.
+set_option maxRecDepth 100000
+set_option maxHeartbeats 0
+
 /-- An element of `Fp12`, written `c0 + c1·w` with `w² = v`. -/
 structure Fp12 where
   c0 : Fp6
@@ -36,9 +41,9 @@ namespace Fp12
 def zero : Fp12 := ⟨Fp6.zero, Fp6.zero⟩
 def one  : Fp12 := ⟨Fp6.one, Fp6.zero⟩
 
-def add (a b : Fp12) : Fp12 := ⟨a.c0 + b.c0, a.c1 + b.c1⟩
-def sub (a b : Fp12) : Fp12 := ⟨a.c0 - b.c0, a.c1 - b.c1⟩
-def neg (a : Fp12) : Fp12 := ⟨-a.c0, -a.c1⟩
+@[inline] def add (a b : Fp12) : Fp12 := ⟨a.c0 + b.c0, a.c1 + b.c1⟩
+@[inline] def sub (a b : Fp12) : Fp12 := ⟨a.c0 - b.c0, a.c1 - b.c1⟩
+@[inline] def neg (a : Fp12) : Fp12 := ⟨-a.c0, -a.c1⟩
 
 /-- The spec's Karatsuba product. -/
 def mul (a b : Fp12) : Fp12 :=
@@ -62,7 +67,7 @@ instance : Neg Fp12 := ⟨neg⟩
 def isOne (a : Fp12) : Bool := a.c0.beq Fp6.one && a.c1.isZero
 
 /-- Conjugation `c0 + c1·w ↦ c0 − c1·w`, which is the map `a ↦ a^(p⁶)`. -/
-def conj (a : Fp12) : Fp12 := ⟨a.c0, -a.c1⟩
+@[inline] def conj (a : Fp12) : Fp12 := ⟨a.c0, -a.c1⟩
 
 /-- The spec's inverse. -/
 def inverse (a : Fp12) : Fp12 :=
