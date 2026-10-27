@@ -41,7 +41,8 @@ def blsXWord : UInt64 := 0xd201000000010000
 
 /-! ## Miller loop -/
 
-/-- A twist point `(X : Y : Z)`, standing for the affine `(X/Z, Y/Z)`. -/
+/-- A twist point in Jacobian coordinates `(X : Y : Z)`, standing for the
+affine `(X/Z², Y/Z³)`. -/
 structure TwistPoint where
   x : Fp2
   y : Fp2
@@ -70,48 +71,55 @@ where `b1`, `b4` still need the `x`/`y` coordinate of `P`. -/
 @[inline] def PairInput.line (pi : PairInput) (b0 b1 b4 : Fp2) : Line :=
   ⟨if pi.pAffine then b0 else b0.mulFp pi.cz, b1.mulFp pi.cx, b4.mulFp pi.cy⟩
 
-/-- Doubling step: `2T` and the tangent line at `T` (scaled by `w³·2YZ²`
-times `Zp³`). With `N = 3X²`, `D = 2YZ`, the affine slope is `N/D` and
-`2T = (W·D : N·(X·D² − W) − Y·D³ : D³·Z)` with `W = N²·Z − 2X·D²`. -/
+/-- Doubling step: `2T` and the tangent line at `T`, scaled by `w³·2YZ³`
+times `Zp³`. The point formulas are the spec's G2 doubling (valid for any
+`a = 0` curve, so no point needs to be on the twist): with `E = 3X²` and
+`Z' = 2YZ`, the affine slope is `E/Z'`; the line coefficients are
+`(E·X − 2Y², −E·Z², Z'·Z²)`. -/
 def dblStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
   if t.y.isZero then
-    -- Spec: slope `0`, so `2T = (−2·tx, −ty)` and the line is `yp − ty·w⁻³`.
-    (⟨-t.x.double, t.y, t.z⟩, pi.line t.y.neg Fp2.zero t.z)
+    -- Spec: slope `0`, so `2T = (−2·tx, −ty)` and the line is `yp − ty·w⁻³`
+    -- (here `ty = 0`).
+    (⟨-t.x.double, t.y, t.z⟩, pi.line t.y.neg Fp2.zero Fp2.one)
   else
-    let n := t.x.sqr
-    let n := n.double + n
-    let d := (t.y * t.z).double
-    let d2 := d.sqr
-    let xd2 := t.x * d2
-    let w := n.sqr * t.z - xd2.double
-    let d3 := d2 * d
-    let x' := w * d
-    let y' := n * (xd2 - w) - t.y * d3
-    let z' := d3 * t.z
-    (⟨x', y', z'⟩, pi.line (n * t.x - t.y * d) (-(n * t.z)) (d * t.z))
+    let a := t.x.sqr
+    let b := t.y.sqr
+    let c := b.sqr
+    let d := ((t.x + b).sqr - a - c).double
+    let e := a.double + a
+    let x' := e.sqr - d.double
+    let y' := e * (d - x') - c.double.double.double
+    let z' := (t.y * t.z).double
+    let zz := t.z.sqr
+    (⟨x', y', z'⟩, pi.line (e * t.x - b.double) (-(e * zz)) (z' * zz))
 
-/-- Addition step: `T + R` and the line through them (scaled by
-`w³·Dd·Z` times `Zp³`). With `Nn = Yr·Z − Y·Zr`, `Dd = Xr·Z − X·Zr`, the
-affine slope is `Nn/Dd`. -/
+/-- Addition step: `T + R` and the line through them, both in Jacobian
+coordinates. With `U1 = X·Zr²`, `U2 = Xr·Z²`, `S1 = Y·Zr³`, `S2 = Yr·Z³`,
+`H = U2 − U1`, `N = S2 − S1` and `Z' = Z·Zr·H`, the affine slope is
+`N/Z'`; the line is scaled by `w³·Z'·Z²` times `Zp³`. -/
 def addStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
   let r := pi.r
-  let nn := r.y * t.z - t.y * r.z
-  let dd := r.x * t.z - t.x * r.z
-  let xr := t.x * r.z
-  let s := xr + r.x * t.z
+  let z1z1 := t.z.sqr
+  let z2z2 := r.z.sqr
+  let u1 := t.x * z2z2
+  let u2 := r.x * z1z1
+  let s1 := t.y * (r.z * z2z2)
+  let s2 := r.y * (t.z * z1z1)
+  let h := u2 - u1
   let zz := t.z * r.z
-  if dd.isZero then
+  if h.isZero then
     -- Spec: slope `0`, so `T + R = (−tx − rx, −ty)` and the line is
     -- `yp − ty·w⁻³`.
-    (⟨-s, -(t.y * r.z), zz⟩, pi.line t.y.neg Fp2.zero t.z)
+    (⟨-(u1 + u2), -s1, zz⟩, pi.line t.y.neg Fp2.zero (t.z * z1z1))
   else
-    let dd2 := dd.sqr
-    let w := nn.sqr * zz - s * dd2
-    let dd3 := dd2 * dd
-    let x' := dd * w
-    let y' := nn * (dd2 * xr - w) - t.y * r.z * dd3
-    let z' := dd3 * zz
-    (⟨x', y', z'⟩, pi.line (nn * t.x - t.y * dd) (-(nn * t.z)) (dd * t.z))
+    let n := s2 - s1
+    let hh := h.sqr
+    let hhh := hh * h
+    let v := u1 * hh
+    let x' := n.sqr - hhh - v.double
+    let y' := n * (v - x') - s1 * hhh
+    let z' := zz * h
+    (⟨x', y', z'⟩, pi.line (n * t.x - r.z * h * t.y) (-(n * z1z1)) (z' * z1z1))
 
 /-- Doubling step for every pair: the new points, and `f` times every
 pair's tangent line, in pair order. -/
@@ -141,9 +149,7 @@ def millerSteps : Nat → List (PairInput × TwistPoint) → Fp12 → Fp12
 
 /-- Prepare a pair of non-infinity points. -/
 def PairInput.ofPoints (p : G1) (q : G2) : PairInput :=
-  let r : TwistPoint :=
-    if q.z.beq Fp2.one then ⟨q.x, q.y, Fp2.one⟩
-    else ⟨q.x * q.z, q.y, q.z.sqr * q.z⟩
+  let r : TwistPoint := ⟨q.x, q.y, q.z⟩
   if p.z.beq Fp.one then ⟨r, p.x, p.y, Fp.one, true⟩
   else ⟨r, p.x * p.z, p.y, p.z.sqr * p.z, false⟩
 

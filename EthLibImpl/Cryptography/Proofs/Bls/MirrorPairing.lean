@@ -67,7 +67,7 @@ def cycSqr (a : Fp12) : Fp12 :=
 
 /-! ## Miller loop -/
 
-/-- `(X : Y : Z)` on the twist. -/
+/-- `(X : Y : Z)` on the twist, Jacobian: standing for `(X/Z², Y/Z³)`. -/
 structure TwistPoint where
   x : Fp2
   y : Fp2
@@ -97,38 +97,41 @@ def PairInput.line (pi : PairInput) (b0 b1 b4 : Fp2) : Line :=
 /-- The implementation's `dblStep`. -/
 def dblStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
   if t.y.isZero then
-    (⟨-(t.x + t.x), t.y, t.z⟩, pi.line (-t.y) Fp2.zero t.z)
+    (⟨-(t.x + t.x), t.y, t.z⟩, pi.line (-t.y) Fp2.zero Fp2.one)
   else
-    let n := t.x * t.x
-    let n := (n + n) + n
-    let d := t.y * t.z + t.y * t.z
-    let d2 := d * d
-    let xd2 := t.x * d2
-    let w := n * n * t.z - (xd2 + xd2)
-    let d3 := d2 * d
-    let x' := w * d
-    let y' := n * (xd2 - w) - t.y * d3
-    let z' := d3 * t.z
-    (⟨x', y', z'⟩, pi.line (n * t.x - t.y * d) (-(n * t.z)) (d * t.z))
+    let a := t.x * t.x
+    let b := t.y * t.y
+    let c := b * b
+    let d := ((t.x + b) * (t.x + b) - a - c) + ((t.x + b) * (t.x + b) - a - c)
+    let e := (a + a) + a
+    let x' := e * e - (d + d)
+    let y' := e * (d - x') - (((c + c) + (c + c)) + ((c + c) + (c + c)))
+    let z' := t.y * t.z + t.y * t.z
+    let zz := t.z * t.z
+    (⟨x', y', z'⟩, pi.line (e * t.x - (b + b)) (-(e * zz)) (z' * zz))
 
 /-- The implementation's `addStep`. -/
 def addStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
   let r := pi.r
-  let nn := r.y * t.z - t.y * r.z
-  let dd := r.x * t.z - t.x * r.z
-  let xr := t.x * r.z
-  let s := xr + r.x * t.z
+  let z1z1 := t.z * t.z
+  let z2z2 := r.z * r.z
+  let u1 := t.x * z2z2
+  let u2 := r.x * z1z1
+  let s1 := t.y * (r.z * z2z2)
+  let s2 := r.y * (t.z * z1z1)
+  let h := u2 - u1
   let zz := t.z * r.z
-  if dd.isZero then
-    (⟨-s, -(t.y * r.z), zz⟩, pi.line (-t.y) Fp2.zero t.z)
+  if h.isZero then
+    (⟨-(u1 + u2), -s1, zz⟩, pi.line (-t.y) Fp2.zero (t.z * z1z1))
   else
-    let dd2 := dd * dd
-    let w := nn * nn * zz - s * dd2
-    let dd3 := dd2 * dd
-    let x' := dd * w
-    let y' := nn * (dd2 * xr - w) - t.y * r.z * dd3
-    let z' := dd3 * zz
-    (⟨x', y', z'⟩, pi.line (nn * t.x - t.y * dd) (-(nn * t.z)) (dd * t.z))
+    let n := s2 - s1
+    let hh := h * h
+    let hhh := hh * h
+    let v := u1 * hh
+    let x' := n * n - hhh - (v + v)
+    let y' := n * (v - x') - s1 * hhh
+    let z' := zz * h
+    (⟨x', y', z'⟩, pi.line (n * t.x - r.z * h * t.y) (-(n * z1z1)) (z' * z1z1))
 
 def dblAll (f : Fp12) : List (PairInput × TwistPoint) → Fp12 × List (PairInput × TwistPoint)
   | [] => (f, [])
@@ -152,9 +155,7 @@ def millerSteps : Nat → List (PairInput × TwistPoint) → Fp12 → Fp12
     millerSteps n st f
 
 def PairInput.ofPoints (p : G1) (q : G2) : PairInput :=
-  let r : TwistPoint :=
-    if q.z.beq Fp2.one then ⟨q.x, q.y, Fp2.one⟩
-    else ⟨q.x * q.z, q.y, q.z * q.z * q.z⟩
+  let r : TwistPoint := ⟨q.x, q.y, q.z⟩
   if p.z.beq Fp.one then ⟨r, p.x, p.y, Fp.one, true⟩
   else ⟨r, p.x * p.z, p.y, p.z * p.z * p.z, false⟩
 

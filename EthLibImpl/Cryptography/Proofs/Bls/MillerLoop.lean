@@ -12,7 +12,7 @@ check (mirrored over spec types in `MirrorPairing`) returns the spec's
 
 The two Miller loops do not compute the same `Fp12` value: the spec runs one
 affine loop per pair over `E(Fp12)`, dividing by the slope's denominator,
-while the implementation runs all pairs at once on projective twist points
+while the implementation runs all pairs at once on Jacobian twist points
 and stores each line scaled by a nonzero factor. The proof shows the two
 products differ by a factor `k` with `k ^ finalExpExponent = 1`, so the
 final exponentiation erases it.
@@ -25,8 +25,8 @@ final exponentiation erases it.
   slope over `Fp2` (`Embedded.dblLam`, `Embedded.addLam`; a zero denominator
   gives `λ = 0`, which is what `Fp12.inverse 0 = 0` gives).
 * Mirror side (namespace `EthLibImpl.Cryptography.Bls.Mirror`): `dblStep_spec`,
-  `addStep_spec` (a projective point `(X : Y : Z)` with `Z ≠ 0` stands for
-  `(X/Z, Y/Z)`; both degenerate branches are the spec's zero slope) and
+  `addStep_spec` (a Jacobian point `(X : Y : Z)` with `Z ≠ 0` stands for
+  `(X/Z², Y/Z³)`; both degenerate branches are the spec's zero slope) and
   `line_toFp12` (the stored line is the spec's line times
   `w³ · ι2 s · ι1 cz` with `s ≠ 0`, `cz ≠ 0`).
 * Accumulation (`millerSteps_rel`): with `Killed k := k ^ finalExpExponent = 1`
@@ -284,27 +284,31 @@ private theorem fp2_beq_iff {a b : Fp2} : a.beq b = true ↔ a = b := by
   exact and_congr fp_beq_iff fp_beq_iff
 
 private theorem fp2_two_ne_zero : (2 : Fp2) ≠ 0 := by decide
+-- `field_simp` sees `2` as `1 + 1`, so it needs this form of the fact.
+private theorem fp2_onePlusOne_ne_zero : (1 + 1 : Fp2) ≠ 0 := by decide
 
-/-! ## Mirror side: one step on a projective twist point -/
+/-! ## Mirror side: one step on a Jacobian twist point -/
 
 /-- The implementation's doubling step on `(X : Y : Z)`, `Z ≠ 0`: the new
 point has `Z' ≠ 0` and stands for the spec's affine double of
-`(X/Z, Y/Z)`, and the line is `pi.line` of the spec's line coefficients
+`(X/Z², Y/Z³)`, and the line is `pi.line` of the spec's line coefficients
 scaled by some `s ≠ 0`. Covers the `Y = 0` branch (spec slope `0`). -/
 theorem dblStep_spec (pi : PairInput) (t : TwistPoint) (hz : t.z ≠ 0) :
-    let lam := dblLam (t.x / t.z) (t.y / t.z)
-    let x' := lam * lam - t.x / t.z - t.x / t.z
-    (dblStep pi t).1.z ≠ 0 ∧ (dblStep pi t).1.x / (dblStep pi t).1.z = x' ∧
-      (dblStep pi t).1.y / (dblStep pi t).1.z = lam * (t.x / t.z - x') - t.y / t.z ∧
+    let lam := dblLam (t.x / t.z ^ 2) (t.y / t.z ^ 3)
+    let x' := lam * lam - t.x / t.z ^ 2 - t.x / t.z ^ 2
+    (dblStep pi t).1.z ≠ 0 ∧ (dblStep pi t).1.x / (dblStep pi t).1.z ^ 2 = x' ∧
+      (dblStep pi t).1.y / (dblStep pi t).1.z ^ 3
+        = lam * (t.x / t.z ^ 2 - x') - t.y / t.z ^ 3 ∧
       ∃ s, s ≠ 0 ∧
-        (dblStep pi t).2 = pi.line (s * (lam * (t.x / t.z) - t.y / t.z)) (-(lam * s)) s := by
+        (dblStep pi t).2
+          = pi.line (s * (lam * (t.x / t.z ^ 2) - t.y / t.z ^ 3)) (-(lam * s)) s := by
   obtain ⟨X, Y, Z⟩ := t
   dsimp only at hz ⊢
   by_cases hY : Y = 0
   · subst hY
-    have hl : dblLam (X / Z) (0 / Z) = 0 := by simp [dblLam]
+    have hl : dblLam (X / Z ^ 2) (0 / Z ^ 3) = 0 := by simp [dblLam]
     rw [dblStep, if_pos (fp2_isZero_iff.mpr rfl), hl]
-    refine ⟨hz, ?_, ?_, Z, hz, ?_⟩
+    refine ⟨hz, ?_, ?_, 1, one_ne_zero, ?_⟩
     · dsimp only
       field_simp
       ring
@@ -314,19 +318,17 @@ theorem dblStep_spec (pi : PairInput) (t : TwistPoint) (hz : t.z ≠ 0) :
       congr 1 <;> simp
   · rw [dblStep, if_neg (fun h => hY (fp2_isZero_iff.mp h))]
     have h2 := fp2_two_ne_zero
+    have h11 := fp2_onePlusOne_ne_zero
     have hd : Y * Z + Y * Z ≠ 0 := by
       rw [← two_mul]
       exact mul_ne_zero h2 (mul_ne_zero hY hz)
-    have hl : dblLam (X / Z) (Y / Z) = (X * X + X * X + X * X) / (Y * Z + Y * Z) := by
-      rw [dblLam, div_eq_div_iff (mul_ne_zero h2 (div_ne_zero hY hz)) hd]
+    have hl : dblLam (X / Z ^ 2) (Y / Z ^ 3) = (X * X + X * X + X * X) / (Y * Z + Y * Z) := by
+      rw [dblLam, div_eq_div_iff (mul_ne_zero h2 (div_ne_zero hY (pow_ne_zero 3 hz))) hd]
       field_simp
       ring
     rw [hl]
     dsimp only
-    generalize X * X + X * X + X * X = n
-    generalize Y * Z + Y * Z = d at hd
-    refine ⟨?_, ?_, ?_, d * Z, mul_ne_zero hd hz, ?_⟩
-    · exact mul_ne_zero (mul_ne_zero (mul_ne_zero hd hd) hd) hz
+    refine ⟨hd, ?_, ?_, (Y * Z + Y * Z) * (Z * Z), mul_ne_zero hd (mul_ne_zero hz hz), ?_⟩
     · field_simp
       ring
     · field_simp
@@ -338,50 +340,69 @@ theorem dblStep_spec (pi : PairInput) (t : TwistPoint) (hz : t.z ≠ 0) :
 /-- The implementation's addition step on `(X : Y : Z)`, `Z ≠ 0`, with
 `R₀ = (Xr : Yr : Zr)`, `Zr ≠ 0`: the new point stands for the spec's affine
 `T + R₀`, and the line is `pi.line` of the spec's line coefficients scaled by
-some `s ≠ 0`. Covers the `Xr·Z = X·Zr` branch (spec slope `0`). -/
+some `s ≠ 0`. Covers the `Xr·Z² = X·Zr²` branch (spec slope `0`). -/
 theorem addStep_spec (pi : PairInput) (t : TwistPoint) (hz : t.z ≠ 0) (hrz : pi.r.z ≠ 0) :
-    let lam := addLam (t.x / t.z) (t.y / t.z) (pi.r.x / pi.r.z) (pi.r.y / pi.r.z)
-    let x' := lam * lam - t.x / t.z - pi.r.x / pi.r.z
-    (addStep pi t).1.z ≠ 0 ∧ (addStep pi t).1.x / (addStep pi t).1.z = x' ∧
-      (addStep pi t).1.y / (addStep pi t).1.z = lam * (t.x / t.z - x') - t.y / t.z ∧
+    let lam := addLam (t.x / t.z ^ 2) (t.y / t.z ^ 3) (pi.r.x / pi.r.z ^ 2) (pi.r.y / pi.r.z ^ 3)
+    let x' := lam * lam - t.x / t.z ^ 2 - pi.r.x / pi.r.z ^ 2
+    (addStep pi t).1.z ≠ 0 ∧ (addStep pi t).1.x / (addStep pi t).1.z ^ 2 = x' ∧
+      (addStep pi t).1.y / (addStep pi t).1.z ^ 3
+        = lam * (t.x / t.z ^ 2 - x') - t.y / t.z ^ 3 ∧
       ∃ s, s ≠ 0 ∧
-        (addStep pi t).2 = pi.line (s * (lam * (t.x / t.z) - t.y / t.z)) (-(lam * s)) s := by
+        (addStep pi t).2
+          = pi.line (s * (lam * (t.x / t.z ^ 2) - t.y / t.z ^ 3)) (-(lam * s)) s := by
   obtain ⟨X, Y, Z⟩ := t
   obtain ⟨⟨Xr, Yr, Zr⟩, cx, cy, cz, pa⟩ := pi
   dsimp only at hz hrz ⊢
-  by_cases hdd : Xr * Z - X * Zr = 0
-  · have hl : addLam (X / Z) (Y / Z) (Xr / Zr) (Yr / Zr) = 0 := by
-      have h0 : Xr / Zr - X / Z = 0 := by
-        rw [div_sub_div _ _ hrz hz, show Xr * Z - Zr * X = 0 by rw [← hdd]; ring, zero_div]
-      rw [addLam, h0, div_zero]
+  have hnum : Yr / Zr ^ 3 - Y / Z ^ 3
+      = (Yr * (Z * (Z * Z)) - Y * (Zr * (Zr * Zr))) / (Z ^ 3 * Zr ^ 3) := by
+    field_simp
+  have hden : Xr / Zr ^ 2 - X / Z ^ 2
+      = (Xr * (Z * Z) - X * (Zr * Zr)) / (Z ^ 2 * Zr ^ 2) := by
+    field_simp
+  by_cases hdd : Xr * (Z * Z) - X * (Zr * Zr) = 0
+  · have hl : addLam (X / Z ^ 2) (Y / Z ^ 3) (Xr / Zr ^ 2) (Yr / Zr ^ 3) = 0 := by
+      rw [addLam, hden, hdd, zero_div, div_zero]
     rw [addStep, hl]
     dsimp only
     rw [if_pos (fp2_isZero_iff.mpr hdd)]
-    refine ⟨mul_ne_zero hz hrz, ?_, ?_, Z, hz, ?_⟩
+    refine ⟨mul_ne_zero hz hrz, ?_, ?_, Z * (Z * Z), mul_ne_zero hz (mul_ne_zero hz hz), ?_⟩
     · field_simp
       ring
     · field_simp
       ring
-    · rw [show Z * (0 * (X / Z) - Y / Z) = -Y by field_simp; ring,
-        show -(0 * Z) = Fp2.zero by simp]
-  · have hl : addLam (X / Z) (Y / Z) (Xr / Zr) (Yr / Zr)
-        = (Yr * Z - Y * Zr) / (Xr * Z - X * Zr) := by
-      rw [addLam, div_sub_div _ _ hrz hz, div_sub_div _ _ hrz hz,
-        div_div_div_cancel_right₀ (mul_ne_zero hrz hz)]
-      congr 1 <;> ring
+    · rw [show Z * (Z * Z) * (0 * (X / Z ^ 2) - Y / Z ^ 3) = -Y by field_simp; ring,
+        show -(0 * (Z * (Z * Z))) = Fp2.zero by simp]
+  · have hl : addLam (X / Z ^ 2) (Y / Z ^ 3) (Xr / Zr ^ 2) (Yr / Zr ^ 3)
+        = (Yr * (Z * (Z * Z)) - Y * (Zr * (Zr * Zr)))
+          / ((Z * Zr) * (Xr * (Z * Z) - X * (Zr * Zr))) := by
+      rw [addLam, hnum, hden]
+      have h1 : Z ^ 3 * Zr ^ 3 ≠ 0 := mul_ne_zero (pow_ne_zero 3 hz) (pow_ne_zero 3 hrz)
+      have h2 : Z ^ 2 * Zr ^ 2 ≠ 0 := mul_ne_zero (pow_ne_zero 2 hz) (pow_ne_zero 2 hrz)
+      rw [div_div_div_eq, div_eq_div_iff (mul_ne_zero h1 hdd)
+        (mul_ne_zero (mul_ne_zero hz hrz) hdd)]
+      ring
     rw [addStep, hl]
     dsimp only
     rw [if_neg (fun h => hdd (fp2_isZero_iff.mp h))]
-    generalize Yr * Z - Y * Zr = nn
-    generalize Xr * Z - X * Zr = dd at hdd
-    dsimp only
-    refine ⟨?_, ?_, ?_, dd * Z, mul_ne_zero hdd hz, ?_⟩
-    · exact mul_ne_zero (mul_ne_zero (mul_ne_zero hdd hdd) hdd) (mul_ne_zero hz hrz)
+    clear hl hnum hden
+    generalize Yr * (Z * (Z * Z)) - Y * (Zr * (Zr * Zr)) = n
+    obtain ⟨h, hh⟩ : ∃ h, h = Xr * (Z * Z) - X * (Zr * Zr) := ⟨_, rfl⟩
+    have hXr : Xr = (h + X * (Zr * Zr)) / (Z * Z) := by
+      rw [hh]
+      field_simp
+      ring
+    rw [← hh] at hdd ⊢
+    clear hh
+    subst hXr
+    refine ⟨mul_ne_zero (mul_ne_zero hz hrz) hdd, ?_, ?_,
+      (Z * Zr * h) * (Z * Z),
+      mul_ne_zero (mul_ne_zero (mul_ne_zero hz hrz) hdd) (mul_ne_zero hz hz), ?_⟩
     · field_simp
       ring
     · field_simp
       ring
-    · congr 1 <;> field_simp
+    · congr 1
+      field_simp
 
 /-! ## Mirror side: the stored line -/
 
@@ -487,13 +508,13 @@ theorem SpecState.run_succ (n : ℕ) (s : SpecState) :
 
 /-- A mirror pair input stands for the spec's `R0` and `P`. -/
 def InputRel (pi : PairInput) (R0 P : Embedded.Point) : Prop :=
-  pi.r.z ≠ 0 ∧ R0 = twist (pi.r.x / pi.r.z) (pi.r.y / pi.r.z) ∧ pi.cz ≠ 0 ∧
+  pi.r.z ≠ 0 ∧ R0 = twist (pi.r.x / pi.r.z ^ 2) (pi.r.y / pi.r.z ^ 3) ∧ pi.cz ≠ 0 ∧
     (pi.pAffine = true → pi.cz = 1) ∧
     ∃ xp yp : Fp, pi.cx = xp * pi.cz ∧ pi.cy = yp * pi.cz ∧ P.x = ι1 xp ∧ P.y = ι1 yp
 
 /-- A mirror loop entry `(pi, t)` stands for a spec state. -/
 def Rel (x : PairInput × TwistPoint) (s : SpecState) : Prop :=
-  InputRel x.1 s.R0 s.P ∧ x.2.z ≠ 0 ∧ s.T = twist (x.2.x / x.2.z) (x.2.y / x.2.z)
+  InputRel x.1 s.R0 s.P ∧ x.2.z ≠ 0 ∧ s.T = twist (x.2.x / x.2.z ^ 2) (x.2.y / x.2.z ^ 3)
 
 /-- One pair's doubling step: the mirror's line is the spec's line times a
 killed factor, and the relation is kept. -/
@@ -504,7 +525,7 @@ theorem rel_dbl {x : PairInput × TwistPoint} {s : SpecState} (h : Rel x s) :
   obtain ⟨hrz, hR0, hcz, hpa, xp, yp, hx, hy, hPx, hPy⟩ := hin
   obtain ⟨hz', hx', hy', sc, hs, hl⟩ := dblStep_spec x.1 x.2 htz
   have hd : s.dbl = { s with T := _, f := _ } := rfl
-  refine ⟨lineAt (dblLam (x.2.x / x.2.z) (x.2.y / x.2.z)) (x.2.x / x.2.z) (x.2.y / x.2.z) s.P,
+  refine ⟨lineAt (dblLam (x.2.x / x.2.z ^ 2) (x.2.y / x.2.z ^ 3)) (x.2.x / x.2.z ^ 2) (x.2.y / x.2.z ^ 3) s.P,
     w ^ 3 * ι2 sc * ι1 x.1.cz, killed_lineFactor hs hcz, ?_, ?_, ?_⟩
   · rw [hd, hT, millerDouble_twist]
   · rw [hl, line_toFp12 x.1 hpa hx hy s.P hPx hPy]
@@ -522,8 +543,8 @@ theorem rel_add {x : PairInput × TwistPoint} {s : SpecState} (h : Rel x s) :
   obtain ⟨hrz, hR0, hcz, hpa, xp, yp, hx, hy, hPx, hPy⟩ := hin
   obtain ⟨hz', hx', hy', sc, hs, hl⟩ := addStep_spec x.1 x.2 htz hrz
   have hd : s.add = { s with T := _, f := _ } := rfl
-  refine ⟨lineAt (addLam (x.2.x / x.2.z) (x.2.y / x.2.z) (x.1.r.x / x.1.r.z) (x.1.r.y / x.1.r.z))
-    (x.2.x / x.2.z) (x.2.y / x.2.z) s.P,
+  refine ⟨lineAt (addLam (x.2.x / x.2.z ^ 2) (x.2.y / x.2.z ^ 3) (x.1.r.x / x.1.r.z ^ 2) (x.1.r.y / x.1.r.z ^ 3))
+    (x.2.x / x.2.z ^ 2) (x.2.y / x.2.z ^ 3) s.P,
     w ^ 3 * ι2 sc * ι1 x.1.cz, killed_lineFactor hs hcz, ?_, ?_, ?_⟩
   · rw [hd, hT, hR0, millerAdd_twist]
   · rw [hl, line_toFp12 x.1 hpa hx hy s.P hPx hPy]
@@ -671,9 +692,8 @@ private theorem zmod_aff_y (y z : ZMod Fp.modulus) (hz : z ≠ 0) :
 private theorem zmod_cube_ne_zero (z : ZMod Fp.modulus) (hz : z ≠ 0) : z * z * z ≠ 0 :=
   mul_ne_zero (mul_ne_zero hz hz) hz
 
-/-- The twist point `PairInput.ofPoints` builds for `q`. -/
-theorem ofPoints_r (p : G1) (q : G2) : (PairInput.ofPoints p q).r =
-    if q.z.beq Fp2.one then ⟨q.x, q.y, Fp2.one⟩ else ⟨q.x * q.z, q.y, q.z * q.z * q.z⟩ := by
+/-- The twist point `PairInput.ofPoints` builds for `q`: its Jacobian triple. -/
+theorem ofPoints_r (p : G1) (q : G2) : (PairInput.ofPoints p q).r = ⟨q.x, q.y, q.z⟩ := by
   unfold PairInput.ofPoints
   dsimp only
   split <;> rfl
@@ -682,15 +702,11 @@ theorem ofPoints_r (p : G1) (q : G2) : (PairInput.ofPoints p q).r =
 coordinates. -/
 theorem ofPoints_twist (p : G1) {q : G2} (hq : q.z ≠ 0) :
     (PairInput.ofPoints p q).r.z ≠ 0 ∧
-      (PairInput.ofPoints p q).r.x / (PairInput.ofPoints p q).r.z = q.x * (q.z⁻¹ * q.z⁻¹) ∧
-      (PairInput.ofPoints p q).r.y / (PairInput.ofPoints p q).r.z
+      (PairInput.ofPoints p q).r.x / (PairInput.ofPoints p q).r.z ^ 2 = q.x * (q.z⁻¹ * q.z⁻¹) ∧
+      (PairInput.ofPoints p q).r.y / (PairInput.ofPoints p q).r.z ^ 3
         = q.y * (q.z⁻¹ * q.z⁻¹ * q.z⁻¹) := by
   rw [ofPoints_r]
-  split
-  · rename_i h
-    rw [fp2_beq_iff.mp h, Fp2.one_def]
-    refine ⟨one_ne_zero, ?_, ?_⟩ <;> simp
-  · refine ⟨mul_ne_zero (mul_ne_zero hq hq) hq, ?_, ?_⟩ <;> field_simp
+  refine ⟨hq, ?_, ?_⟩ <;> field_simp
 
 /-- `PairInput.ofPoints p q` stands for the spec's embedded `q` and `p`
 when neither is at infinity. -/
