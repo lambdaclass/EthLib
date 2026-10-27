@@ -1011,7 +1011,7 @@ theorem powTable_getElem! (a : Fp) {d : Nat} (hd : d < 16) : (powTable a)[d]! = 
 /-- One window step of `powNibbles`: four squarings, then a table
 multiplication for a nonzero digit. -/
 def nibStep (tbl : Array Fp) (acc : Fp) (d : UInt8) : Fp :=
-  if (d != 0) = true then mul (sqr (sqr (sqr (sqr acc)))) tbl[d.toNat]!
+  if (d != 0) = true then mul tbl[d.toNat]! (sqr (sqr (sqr (sqr acc))))
   else sqr (sqr (sqr (sqr acc)))
 
 theorem powNibbles_eq (a : Fp) (ds : ByteArray) :
@@ -1058,8 +1058,9 @@ theorem nibStep_spec {a : Fp} (ha : Canonical a) {acc : Fp} (hacc : Canonical ac
   split
   · rw [powTable_getElem! a hd]
     have hp := powIter_spec ha d.toNat
-    refine ⟨mul_canonical _ hp.1, ?_⟩
-    rw [val_mul _ hp.1, toZMod_mul, hs, hp.2]
+    refine ⟨mul_canonical _ c4, ?_⟩
+    rw [val_mul _ c4, toZMod_mul, hs, hp.2]
+    ring
   · rename_i h
     have : d = 0 := by simpa using h
     subst this
