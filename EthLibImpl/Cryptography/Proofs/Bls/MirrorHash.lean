@@ -49,11 +49,24 @@ def swuDenom (u : Fp2) : Fp2 × Fp2 :=
   let zu2 := Z * (u * u)
   (zu2, zu2 * zu2 + zu2)
 
-def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
-  let x1 :=
-    if denom.isZero then x1Exceptional
-    else negBOverA * (Fp2.one + denomInv)
-  let gx1 := x1 * x1 * x1 + Aprime * x1 + Bprime
+/-- The implementation's `Fp2.sqrtGivenNorm` over spec types: the second half of
+`Fp2.sqrtAlt`, given a square root `s` of the norm. -/
+def sqrtGivenNorm (a : Fp2) (s : Fp) : Fp2 :=
+  let half := (Fp.ofNat 2).inverse
+  let t := (a.c0 + s) * half
+  let d := Fp.powNat t ((Fp.modulus - 3) / 4)
+  let dt := d * t
+  let hd := a.c1 * d * half
+  if (d * dt).beq Fp.one then ⟨dt, hd⟩ else ⟨-hd, dt⟩
+
+/-- `s125² = −125`. -/
+def s125 : Fp := Fp.ofNat
+  0x810e5a23cbb86fd12ded1af502287a397ed25c1d6fe0444e38c48e9c7ddb3c27cfebdd464e90f201fda0eb6983f2533
+
+/-- The spec's `panic!` (never reached). -/
+def swuPanic : Fp2 × Fp2 := panic! "neither gx1 nor gx2 is a square"
+
+def simpleSwuSlow (u zu2 x1 gx1 : Fp2) : Fp2 × Fp2 :=
   match Fp2.sqrtAlt gx1 with
   | .ok y =>
     let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
@@ -65,7 +78,32 @@ def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
     | .ok y =>
       let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
       (x2, y)
-    | .error _ => panic! "neither gx1 nor gx2 is a square"
+    | .error _ => swuPanic
+
+def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
+  let x1 :=
+    if denom.isZero then x1Exceptional
+    else negBOverA * (Fp2.one + denomInv)
+  let gx1 := x1 * x1 * x1 + Aprime * x1 + Bprime
+  if gx1.c1.isZero || denom.isZero then
+    simpleSwuSlow u zu2 x1 gx1
+  else
+    let n1 := gx1.c0 * gx1.c0 + gx1.c1 * gx1.c1
+    let c := Fp.powNat n1 ((Fp.modulus + 1) / 4)
+    if (c * c).beq n1 then
+      let y := sqrtGivenNorm gx1 c
+      let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
+      (x1, y)
+    else
+      let x2 := zu2 * x1
+      let gx2 := x2 * x2 * x2 + Aprime * x2 + Bprime
+      if gx2.c1.isZero then
+        simpleSwuSlow u zu2 x1 gx1
+      else
+        let nu := u.c0 * u.c0 + u.c1 * u.c1
+        let y := sqrtGivenNorm gx2 (s125 * (nu * nu * nu) * c)
+        let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
+        (x2, y)
 
 def isoParts (xp : Fp2) : Fp2 × Fp2 × Fp2 × Fp2 :=
   let xp2 := xp * xp

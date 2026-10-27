@@ -32,6 +32,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.Sha256Fast
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp12
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp2
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp6
+import EthLibImpl.Cryptography.Proofs.Bls.SwuMath
 
 /-!
 # `EthLibImpl.Cryptography.Proofs.Bls`

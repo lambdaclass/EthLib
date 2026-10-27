@@ -199,6 +199,18 @@ def sqrt (a : Fp2) : Except BlsError Fp2 :=
       let hd := a.c1 * d * halfFp
       if (d * dt).beq Fp.one then .ok (mk dt hd) else .ok (mk (-hd) dt)
 
+/-- The second half of `sqrt` for `a.c1 ≠ 0`, given a square root `s` of
+the norm `a0² + a1²` (either one: `t·t' = −a1²/4` for `t = (a0 + s)/2`
+and `t' = (a0 − s)/2`, and `−1` is a non-square, so exactly one of `t`,
+`−t` is a square whichever root is taken). Callers that already hold such
+an `s` skip the norm's exponentiation inside `sqrt`. -/
+def sqrtGivenNorm (a : Fp2) (s : Fp) : Fp2 :=
+  let t := (a.c0 + s) * halfFp
+  let d := Fp.powNibbles t invSqrtDigits
+  let dt := d * t
+  let hd := a.c1 * d * halfFp
+  if (d * dt).beq Fp.one then mk dt hd else mk (-hd) dt
+
 end Fp2
 
 end EthLibImpl.Cryptography.Bls
