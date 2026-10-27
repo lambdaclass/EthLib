@@ -83,23 +83,36 @@ theorem mac_spec (t a b c : UInt64) :
   have hm := (mulHi a b).toNat_lt
   omega
 
+/-- A word that is at most one is `0` or `1`. -/
+theorem word_zero_or_one {c : UInt64} (h : c.toNat ≤ 1) : c = 0 ∨ c = 1 := by
+  rcases (show c.toNat = 0 ∨ c.toNat = 1 by omega) with h | h
+  · exact Or.inl (UInt64.toNat_inj.mp h)
+  · exact Or.inr (UInt64.toNat_inj.mp h)
+
+/-- Joining two flags with `|||` adds them when they are not both set. -/
+theorem or_flags_toNat (k1 k2 : UInt64) (h1 : k1.toNat ≤ 1) (h2 : k2.toNat ≤ 1)
+    (h : k1.toNat + k2.toNat ≤ 1) : (k1 ||| k2).toNat = k1.toNat + k2.toNat := by
+  rcases word_zero_or_one h1 with rfl | rfl <;> rcases word_zero_or_one h2 with rfl | rfl <;>
+    first | rfl | (exfalso; revert h; decide)
+
 /-- `adc a b c = (s, c')` with `s + 2^64·c' = a + b + c` and `c' ≤ 1`, for
 `c ≤ 1`. -/
 theorem adc_spec (a b c : UInt64) (hc : c.toNat ≤ 1) :
     (adc a b c).1.toNat + 2 ^ 64 * (adc a b c).2.toNat = a.toNat + b.toNat + c.toNat ∧
       (adc a b c).2.toNat ≤ 1 := by
   have h1 := carry_fst a b
-  have h2 := carry_snd (a + b) c
+  have h2 := carry_fst (a + b) c
   have c1 := ite_toNat_le_one (a + b < a)
-  have c2 := ite_toNat_le_one (a + b + c < c)
+  have c2 := ite_toNat_le_one (a + b + c < a + b)
   simp only [adc]
   generalize (if a + b < a then (1 : UInt64) else 0) = k1 at *
-  generalize (if a + b + c < c then (1 : UInt64) else 0) = k2 at *
+  generalize (if a + b + c < a + b then (1 : UInt64) else 0) = k2 at *
   generalize a + b = s at *
   have ha := a.toNat_lt
   have hb := b.toNat_lt
   have hs := s.toNat_lt
-  rw [UInt64.toNat_add k1 k2]
+  have hs2 := (s + c).toNat_lt
+  have hor := or_flags_toNat k1 k2 c1 c2 (by omega)
   omega
 
 /-- Borrow detection: `a - b` borrows iff `a < b`. -/
@@ -135,7 +148,7 @@ theorem sbb_spec (a b br : UInt64) (hbr : br.toNat ≤ 1) :
   have hd := d.toNat_lt
   have hdb := (d - br).toNat_lt
   have hb := b.toNat_lt
-  rw [UInt64.toNat_add k1 k2]
+  have hor := or_flags_toNat k1 k2 c1 c2 (by omega)
   omega
 
 end EthLibImpl.Cryptography.Bls.Limbs

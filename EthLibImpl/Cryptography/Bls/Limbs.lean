@@ -32,20 +32,27 @@ def mulHi (a b : UInt64) : UInt64 := ((a.toNat * b.toNat) >>> 64).toUInt64
   let hi := hi + (if s2 < c then 1 else 0)
   (s2, hi)
 
-/-- `a + b + c` as `(sum, carry)` for a carry-in `c ≤ 1`. -/
+/-- `a + b + c` as `(sum, carry)` for a carry-in `c ≤ 1`.
+
+The shape matters for speed: comparing `s2` with `s` and joining the two
+carries with `|||` (at most one is set) is the pattern LLVM folds into a
+single add-with-carry, so a chain of `adc` becomes an `adds`/`adcs` (or
+`add`/`adc`) chain with no flag materialization. -/
 @[inline] def adc (a b c : UInt64) : UInt64 × UInt64 :=
   let s := a + b
   let c1 : UInt64 := if s < a then 1 else 0
   let s2 := s + c
-  let c2 : UInt64 := if s2 < c then 1 else 0
-  (s2, c1 + c2)
+  let c2 : UInt64 := if s2 < s then 1 else 0
+  (s2, c1 ||| c2)
 
-/-- `a - b - br` as `(difference, borrow)` for a borrow-in `br ≤ 1`. -/
+/-- `a - b - br` as `(difference, borrow)` for a borrow-in `br ≤ 1`.
+The borrows are joined with `|||` (at most one is set), the shape LLVM
+folds into subtract-with-borrow chains. -/
 @[inline] def sbb (a b br : UInt64) : UInt64 × UInt64 :=
   let d := a - b
   let b1 : UInt64 := if a < b then 1 else 0
   let d2 := d - br
   let b2 : UInt64 := if d < br then 1 else 0
-  (d2, b1 + b2)
+  (d2, b1 ||| b2)
 
 end EthLibImpl.Cryptography.Bls.Limbs
