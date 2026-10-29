@@ -49,16 +49,18 @@ def sha256OutputSize : Nat := 32
 def oversizeDstPrefix : ByteArray :=
   String.toUTF8 "H2C-OVERSIZE-DST-"
 
-def i2osp (n : Nat) (len : Nat) : ByteArray :=
-  ByteArray.mk <| Array.ofFn (n := len) fun i =>
-    UInt8.ofNat ((n >>> ((len - 1 - i.val) * 8)) &&& 0xff)
-
-def strxor (a b : ByteArray) : ByteArray :=
-  ByteArray.mk <| Array.ofFn (n := a.size) fun i => a[i.val]! ^^^ b[i.val]!
+/-- `acc` followed by the bytes `a[j + k] ^^^ b[j + k]` for `k < f`: the spec's `strxor`,
+appended in place instead of built through a closure and copied. -/
+def xorGo (a b : ByteArray) : Nat → Nat → ByteArray → ByteArray
+  | _, 0, acc => acc
+  | j, f + 1, acc => xorGo a b (j + 1) f (acc.push (a[j]! ^^^ b[j]!))
 
 /-- Expand `msg` into `lenInBytes` pseudo-random bytes via XMD with
 SHA-256. Follows RFC 9380 §5.3.1 and §5.3.3: oversized DSTs are first
-shortened with SHA-256, and oversized output requests are rejected. -/
+shortened with SHA-256, and oversized output requests are rejected.
+
+Every hash input is built once, in a buffer whose capacity already covers its SHA-256
+padding, so appending and padding never reallocate. -/
 def expandMessageXmdFast
     (msg : ByteArray) (dst : ByteArray) (lenInBytes : Nat)
     : Except BlsError ByteArray := do
@@ -73,18 +75,24 @@ def expandMessageXmdFast
     else
       dst
   let zPad := ByteArray.mk (Array.replicate sha256BlockSize 0)
-  let dstPrime := dst ++ i2osp dst.size 1
-  let lIbStr := i2osp lenInBytes 2
-  let msgPrime := zPad ++ msg ++ lIbStr ++ i2osp 0 1 ++ dstPrime
+  let dstPrime := dst.push (UInt8.ofNat (dst.size &&& 0xff))
+  let cap := sha256BlockSize + msg.size + dstPrime.size + 72
+  let msgPrime := (((ByteArray.emptyWithCapacity cap ++ zPad ++ msg).push
+    (UInt8.ofNat ((lenInBytes >>> 8) &&& 0xff))).push (UInt8.ofNat (lenInBytes &&& 0xff))
+    |>.push 0) ++ dstPrime
   let b0 := EthLibImpl.Cryptography.Bls.Sha256Fast.hash msgPrime
+  let cap := sha256OutputSize + dstPrime.size + 72
   let mut bs : Array ByteArray := Array.mkEmpty ell
-  let b1 := EthLibImpl.Cryptography.Bls.Sha256Fast.hash (b0 ++ i2osp 1 1 ++ dstPrime)
+  let b1 := EthLibImpl.Cryptography.Bls.Sha256Fast.hash
+    ((ByteArray.emptyWithCapacity cap ++ b0).push 1 ++ dstPrime)
   bs := bs.push b1
   for i in [2:ell+1] do
     let prev := bs[bs.size - 1]!
-    let bi := EthLibImpl.Cryptography.Bls.Sha256Fast.hash (strxor b0 prev ++ i2osp i 1 ++ dstPrime)
+    let bi := EthLibImpl.Cryptography.Bls.Sha256Fast.hash
+      ((xorGo b0 prev 0 b0.size (ByteArray.emptyWithCapacity cap)).push (UInt8.ofNat (i &&& 0xff))
+        ++ dstPrime)
     bs := bs.push bi
-  let mut out := bs.foldl (· ++ ·) ByteArray.empty
+  let mut out := bs.foldl (· ++ ·) (ByteArray.emptyWithCapacity (sha256OutputSize * bs.size))
   return out.extract 0 lenInBytes
 
 end FastXmd
@@ -270,8 +278,24 @@ def c2Psi : Fp2 := (Fp2.powNat (Fp2.mk Fp.one Fp.one) ((Fp.modulus - 1) / 2)).in
 /-- `1 / 2^((p − 1) / 3)`, lifted into `Fp2`. -/
 def c1Psi2 : Fp2 := Fp2.mk (Fp.powNat (Fp.ofNat 2) ((Fp.modulus - 1) / 3)).inverse Fp.zero
 
-/-- Multiply by the negative BLS parameter, with the spec's recursion. -/
-def mulNegX (P : G2) : G2 := G2.neg (G2.mulNatW P G2.absXWord)
+/-- `G2.mulNatW` with the same triples but without its wasted last doubling: at `k = 1`
+the recursive call `mulNatW (double p) 0` ignores its point, but a strict `double p` is still
+evaluated first. -/
+def mulNatWLean (p : G2) (k : UInt64) : G2 :=
+  if k = 0 then G2.zero
+  else if k = 1 then G2.add p G2.zero
+  else
+    let half := mulNatWLean (G2.double p) (k / 2)
+    if k % 2 = 1 then G2.add p half else half
+termination_by k.toNat
+decreasing_by
+  have : k.toNat ≠ 0 := fun h => ‹¬k = 0› (UInt64.toNat_inj.mp (by simpa using h))
+  rw [UInt64.toNat_div]
+  show k.toNat / 2 < k.toNat
+  omega
+
+/-- Multiply by the negative BLS parameter, with the spec's triples. -/
+def mulNegX (P : G2) : G2 := G2.neg (mulNatWLean P G2.absXWord)
 
 /-- `ψ` without normalizing: the spec's `psi P` scaled by `conj(P.z)`. -/
 def psiJac (P : G2) : G2 := ⟨c1Psi * P.x.conj, c2Psi * P.y.conj, P.z.conj⟩
