@@ -1165,16 +1165,6 @@ theorem val_powNat_powNat {a : Fp} (ha : Canonical a) (e : Nat) :
     (powNat a e).val = EthLib.Cryptography.Bls.Fp.powNat a.val e :=
   val_powNibbles_powNat ha e
 
-theorem inverse_eq (a : Fp) : inverse a = powNibbles a (nibbles (modulus - 2)) := rfl
-
-theorem inverse_canonical {a : Fp} (ha : Canonical a) : Canonical (inverse a) :=
-  powNibbles_canonical ha _
-
-/-- Fermat inversion computes the spec's `Fp.inverse`. -/
-theorem val_inverse {a : Fp} (ha : Canonical a) :
-    (inverse a).val = EthLib.Cryptography.Bls.Fp.inverse a.val :=
-  val_powNibbles_powNat ha _
-
 theorem div_def (a b : Fp) : a / b = a * b.inverse := rfl
 
 /-! ## Square root -/

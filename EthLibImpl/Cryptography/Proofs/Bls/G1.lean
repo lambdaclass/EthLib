@@ -1,5 +1,6 @@
 import EthLibImpl.Cryptography.Bls.G1
 import EthLibImpl.Cryptography.Proofs.Bls.Fp
+import EthLibImpl.Cryptography.Proofs.Bls.FpInv
 import EthLibImpl.Cryptography.Proofs.Bls.G1Endo
 import EthLib.Cryptography.Proofs.Bls.G1Group
 
