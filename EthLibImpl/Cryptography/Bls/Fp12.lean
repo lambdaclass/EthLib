@@ -19,6 +19,9 @@ spec's):
   by `γₙ,ₖ = ξ^(k(pⁿ−1)/6)`. The constants are defined by that formula.
 * `cycSqr`: Granger–Scott squaring, valid on the cyclotomic subgroup
   `{g : g^(p⁴−p²+1) = 1}` (the final exponentiation only squares there).
+* `C4`, `compress`, `csqr`, `g4Frac`, `rebuild`: Karabina's compressed
+  squaring on the same subgroup, 6 `Fp2` squarings instead of 9, with the
+  decompression that recovers the element from four coordinates.
 * `mulBy014`: product with a Miller-loop line, whose only nonzero
   coefficients are those of `w⁰`, `w²` and `w³`.
 -/
@@ -139,6 +142,52 @@ def cycSqr (a : Fp12) : Fp12 :=
   let (t20, t21) := sqrFp4 a.c0.c1 a.c1.c2
   ⟨⟨threeSubTwo t00 a.c0.c0, threeSubTwo t10 a.c0.c1, threeSubTwo t20 a.c0.c2⟩,
    ⟨threeAddTwo (Fp2.mulByXiI t21) a.c1.c0, threeAddTwo t01 a.c1.c1, threeAddTwo t11 a.c1.c2⟩⟩
+
+/-! ## Compressed cyclotomic squaring (Karabina)
+
+On the cyclotomic subgroup an element is determined by four of its six `Fp2`
+coordinates, `c0.c1, c0.c2, c1.c0, c1.c2` (in `w`-power order `a2, a4, a1,
+a5`). `cycSqr` computes those four outputs from the same four inputs (two of
+its three `sqrFp4` calls), so squaring can stay compressed at 6 `Fp2`
+squarings instead of 9. The other two coordinates come back from the
+relations `4·a1·a3 = ξ·a5² + 3·a2² − 2·a4` (or `ξ·a3·a4 = 2ξ·a2·a5` when
+`a1 = 0`) and `a0 = ξ(2·a3² + a1·a5 − 3·a2·a4) + 1`, which cost an `Fp2`
+inversion; `Pairing.decompress6` shares one among six elements. -/
+
+/-- The four coordinates `c0.c1, c0.c2, c1.c0, c1.c2`; on the cyclotomic
+subgroup they determine the element (Karabina). -/
+structure C4 where
+  g1 : Fp2   -- c0.c1
+  g2 : Fp2   -- c0.c2
+  g3 : Fp2   -- c1.c0
+  g5 : Fp2   -- c1.c2
+deriving Inhabited
+
+@[inline] def compress (a : Fp12) : C4 := ⟨a.c0.c1, a.c0.c2, a.c1.c0, a.c1.c2⟩
+
+/-- `cycSqr` restricted to the compressed coordinates: 6 `Fp2` squarings. -/
+def csqr (x : C4) : C4 :=
+  let (t10, t11) := sqrFp4 x.g3 x.g2
+  let (t20, t21) := sqrFp4 x.g1 x.g5
+  ⟨threeSubTwo t10 x.g1, threeSubTwo t20 x.g2,
+   threeAddTwo (Fp2.mulByXiI t21) x.g3, threeAddTwo t11 x.g5⟩
+
+/-- Numerator and denominator of `c1.c1`: `(ξg5² + 3g1² − 2g2) / (4g3)`, or
+`2g1g5 / g2` when `g3 = 0`. -/
+@[inline] def g4Frac (x : C4) : Fp2 × Fp2 :=
+  if x.g3.isZero then (Fp2.doubleI (Fp2.mul x.g1 x.g5), x.g2)
+  else
+    let t0 := Fp2.sqr x.g1
+    let t1 := Fp2.addI (Fp2.doubleI (Fp2.subI t0 x.g2)) t0
+    (Fp2.addI (Fp2.mulByXiI (Fp2.sqr x.g5)) t1, Fp2.doubleI (Fp2.doubleI x.g3))
+
+/-- The element from its compressed coordinates and `c1.c1`:
+`c0.c0 = ξ(2g4² + g3g5 − 3g1g2) + 1`. -/
+@[inline] def rebuild (x : C4) (g4 : Fp2) : Fp12 :=
+  let t1 := Fp2.mul x.g2 x.g1
+  let t2 := Fp2.subI (Fp2.doubleI (Fp2.subI (Fp2.sqr g4) t1)) t1
+  let t2 := Fp2.addI t2 (Fp2.mul x.g3 x.g5)
+  ⟨⟨Fp2.addI (Fp2.mulByXiI t2) Fp2.one, x.g1, x.g2⟩, ⟨x.g3, g4, x.g5⟩⟩
 
 /-! ## Sparse product with a line -/
 

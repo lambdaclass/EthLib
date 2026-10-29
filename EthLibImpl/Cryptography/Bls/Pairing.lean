@@ -27,8 +27,11 @@ fast implementations do:
   `3h = (x − 1)²(x + p)(x² + p² − 1) + 3`. The check only compares the
   result with one, which the cube preserves (see `finalExpCube`).
   The first two factors use conjugation (`a^(p⁶)`) and `frobenius2`. Their
-  result lies in the cyclotomic subgroup, where `cycSqr` squares and
-  conjugation inverts.
+  result lies in the cyclotomic subgroup, where conjugation inverts and
+  squaring can stay compressed to four `Fp2` coordinates (Karabina,
+  `Fp12.csqr`): `g^|x|` runs right to left over the six set bits of `|x|`,
+  squaring compressed 63 times, restoring the six saved powers with one
+  shared `Fp2` inversion (`decompress6`) and multiplying them.
 -/
 
 namespace EthLibImpl.Cryptography.Bls
@@ -160,16 +163,60 @@ def millerLoop (pis : List PairInput) : Fp12 :=
 
 /-! ## Final exponentiation -/
 
-/-- `g^k` by cyclotomic squarings, most significant bit first, for `k` of
-bit length `n + 1`. Valid on the cyclotomic subgroup. -/
-def cycPowMsb (g : Fp12) (k : UInt64) : Nat → Fp12 → Fp12
-  | 0, acc => acc
-  | n + 1, acc =>
-    let acc := acc.cycSqr
-    cycPowMsb g k n (if (k >>> n.toUInt64) &&& 1 != 0 then acc * g else acc)
+/-- `n` compressed squarings. -/
+def csqrN (x : Fp12.C4) : Nat → Fp12.C4
+  | 0 => x
+  | n + 1 => csqrN (Fp12.csqr x) n
 
-/-- `g^|x|`. -/
-def cycPowAbsX (g : Fp12) : Fp12 := cycPowMsb g blsXWord 63 g
+set_option maxHeartbeats 4000000 in
+/-- Decompress six values with one shared `Fp2.inverse` (Montgomery's trick,
+written out straight-line). As in `Fp2.batchInverse2`/`batchInverse4`, a zero
+denominator is replaced by one; its `c1.c1` is zero, which is correct for the
+only cyclotomic element that reaches that case (one). -/
+def decompress6 (x0 x1 x2 x3 x4 x5 : Fp12.C4) :
+    Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12 :=
+  let (n0, d0) := Fp12.g4Frac x0
+  let (n1, d1) := Fp12.g4Frac x1
+  let (n2, d2) := Fp12.g4Frac x2
+  let (n3, d3) := Fp12.g4Frac x3
+  let (n4, d4) := Fp12.g4Frac x4
+  let (n5, d5) := Fp12.g4Frac x5
+  let e0 := if d0.isZero then Fp2.one else d0
+  let e1 := if d1.isZero then Fp2.one else d1
+  let e2 := if d2.isZero then Fp2.one else d2
+  let e3 := if d3.isZero then Fp2.one else d3
+  let e4 := if d4.isZero then Fp2.one else d4
+  let e5 := if d5.isZero then Fp2.one else d5
+  let p01 := e0 * e1
+  let p23 := e2 * e3
+  let p45 := e4 * e5
+  let p0123 := p01 * p23
+  let i := (p0123 * p45).inverse
+  let i0123 := i * p45
+  let i45 := i * p0123
+  let i01 := i0123 * p23
+  let i23 := i0123 * p01
+  let g0 := if d0.isZero then Fp2.zero else n0 * (i01 * e1)
+  let g1 := if d1.isZero then Fp2.zero else n1 * (i01 * e0)
+  let g2 := if d2.isZero then Fp2.zero else n2 * (i23 * e3)
+  let g3 := if d3.isZero then Fp2.zero else n3 * (i23 * e2)
+  let g4 := if d4.isZero then Fp2.zero else n4 * (i45 * e5)
+  let g5 := if d5.isZero then Fp2.zero else n5 * (i45 * e4)
+  (Fp12.rebuild x0 g0, Fp12.rebuild x1 g1, Fp12.rebuild x2 g2,
+   Fp12.rebuild x3 g3, Fp12.rebuild x4 g4, Fp12.rebuild x5 g5)
+
+/-- `g^|x|` for cyclotomic `g`, right to left: `|x| = 2⁶³ + 2⁶² + 2⁶⁰ + 2⁵⁷ +
+2⁴⁸ + 2¹⁶`, so 63 compressed squarings give the six powers, one batched
+decompression recovers them, and five products combine them. -/
+def cycPowAbsX (g : Fp12) : Fp12 :=
+  let c16 := csqrN (Fp12.compress g) 16
+  let c48 := csqrN c16 32
+  let c57 := csqrN c48 9
+  let c60 := csqrN c57 3
+  let c62 := csqrN c60 2
+  let c63 := Fp12.csqr c62
+  let (d16, d48, d57, d60, d62, d63) := decompress6 c16 c48 c57 c60 c62 c63
+  d63 * d62 * d60 * d57 * d48 * d16
 
 /-- Exactly `f^(3·(p¹² − 1)/r)`, the cube of the spec's final
 exponentiation. Since `3·(p⁴ − p² + 1)/r = (x − 1)²(x + p)(x² + p² − 1) + 3`
