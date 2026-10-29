@@ -1153,195 +1153,6 @@ theorem val_powNibbles_powNat {a : Fp} (ha : Canonical a) (e : Nat) :
     (powNibbles a (nibbles e)).val = EthLib.Cryptography.Bls.Fp.powNat a.val e := by
   rw [val_powNibbles ha, powNat_eq_monoid_pow]
 
-/-! ### Sliding-window exponentiation
-
-`powWin a prog` is `a ^ winExp prog` whenever the program's digits are odd (or
-zero for a final run of squarings) and below 32. `sqrtWin` and `invSqrtWin`
-satisfy that and evaluate to their exponents by kernel computation. -/
-
-/-- The exponent a window program stands for. -/
-def winExp (prog : WinProg) : Nat :=
-  prog.2.toList.foldl (fun v s => v * 2 ^ s.1 + s.2) prog.1
-
-/-- The digits a window program may use: an odd start, odd steps below 32 or
-zero. -/
-def WinProg.Valid (prog : WinProg) : Prop :=
-  prog.1 % 2 = 1 ∧ prog.1 < 32 ∧ ∀ s ∈ prog.2.toList, s.2 = 0 ∨ (s.2 % 2 = 1 ∧ s.2 < 32)
-
-/-- `a ^ (2 * k + 1)` by `k` products with `a²`, the odd table's entries. -/
-def oddIter (a : Fp) : Nat → Fp
-  | 0 => a
-  | k + 1 => mul (oddIter a k) (sqr a)
-
-theorem oddIter_spec {a : Fp} (ha : Canonical a) (k : Nat) :
-    Canonical (oddIter a k) ∧
-      toZMod (oddIter a k).val = toZMod a.val ^ (2 * k + 1) := by
-  induction k with
-  | zero => exact ⟨ha, by simp [oddIter]⟩
-  | succ k ih =>
-    have hs := sqr_canonical ha
-    refine ⟨mul_canonical _ hs, ?_⟩
-    rw [oddIter, val_mul _ hs, toZMod_mul, ih.2, val_sqr ha, toZMod_mul, ← pow_two,
-      ← pow_add]
-    congr 1
-
-theorem oddPush_eq (a : Fp) (k m : Nat) :
-    oddPush (sqr a) k (oddIter a m) ((List.range (m + 1)).map (oddIter a)).toArray =
-      ((List.range (m + 1 + k)).map (oddIter a)).toArray := by
-  induction k generalizing m with
-  | zero => rfl
-  | succ k ih =>
-    have e : ((List.range (m + 1)).map (oddIter a)).toArray.push (oddIter a (m + 1)) =
-        ((List.range (m + 1 + 1)).map (oddIter a)).toArray := by
-      rw [List.range_succ (n := m + 1)]; simp
-    rw [oddPush]
-    have h := ih (m + 1)
-    rw [show m + 1 + (k + 1) = m + 1 + 1 + k by omega, ← h, ← e]
-    rfl
-
-theorem oddTable_getElem! (a : Fp) {j : Nat} (hj : j < 16) : (oddTable a)[j]! = oddIter a j := by
-  have h : oddTable a = ((List.range 16).map (oddIter a)).toArray := by
-    have := oddPush_eq a 15 0
-    simpa [oddTable] using this
-  rw [h]
-  simp [hj]
-
-theorem repeat_spec {x : Fp} (hx : Canonical x) (n : Nat) :
-    Canonical (Nat.repeat (fun x => mulI x x) n x) ∧
-      toZMod (Nat.repeat (fun x => mulI x x) n x).val = toZMod x.val ^ 2 ^ n := by
-  induction n with
-  | zero =>
-    refine ⟨hx, ?_⟩
-    show toZMod x.val = _
-    rw [Nat.pow_zero, pow_one]
-  | succ n ih =>
-    obtain ⟨c0, e0⟩ := ih
-    show Canonical (mulI _ _) ∧ toZMod (mulI _ _).val = _
-    refine ⟨mulI_canonical _ c0, ?_⟩
-    rw [val_mulI _ c0, toZMod_mul, e0, ← pow_add, pow_succ 2 n, Nat.mul_two]
-
-theorem repeat_add {α : Type} (f : α → α) (m k : Nat) (a : α) :
-    Nat.repeat f (m + k) a = Nat.repeat f m (Nat.repeat f k a) := by
-  induction m with
-  | zero => rw [Nat.zero_add]; rfl
-  | succ m ih => rw [Nat.succ_add]; exact congrArg f ih
-
-/-- The unrolled squaring run is `n` applications of the squaring. -/
-theorem sqrN_eq (acc : Fp) (n : Nat) : sqrN acc n = Nat.repeat (fun x => mulI x x) n acc := by
-  match n with
-  | 0 => rfl
-  | 1 => rfl
-  | 2 => rfl
-  | 3 => rfl
-  | 4 => rfl
-  | 5 => rfl
-  | n + 6 =>
-    rw [show n + 6 = (n + 1) + 5 by omega, repeat_add]
-    rfl
-
-theorem sqrN_spec {x : Fp} (hx : Canonical x) (n : Nat) :
-    Canonical (sqrN x n) ∧ toZMod (sqrN x n).val = toZMod x.val ^ 2 ^ n := by
-  rw [sqrN_eq]
-  exact repeat_spec hx n
-
-theorem winStep_spec {a : Fp} (ha : Canonical a) {acc : Fp} (hacc : Canonical acc)
-    {s : Nat × Nat} (hs : s.2 = 0 ∨ (s.2 % 2 = 1 ∧ s.2 < 32)) :
-    Canonical (winStep (oddTable a) acc s) ∧
-      toZMod (winStep (oddTable a) acc s).val =
-        toZMod acc.val ^ 2 ^ s.1 * toZMod a.val ^ s.2 := by
-  obtain ⟨c, e⟩ := sqrN_spec hacc s.1
-  unfold winStep
-  dsimp only
-  split
-  · rename_i h
-    have hd : s.2 % 2 = 1 ∧ s.2 < 32 := by
-      rcases hs with hs | hs
-      · simp [hs] at h
-      · exact hs
-    have hj : s.2 >>> 1 < 16 := by rw [Nat.shiftRight_eq_div_pow]; omega
-    rw [oddTable_getElem! a hj]
-    obtain ⟨c2, e2⟩ := oddIter_spec ha (s.2 >>> 1)
-    refine ⟨mul_canonical _ c, ?_⟩
-    have hexp : 2 * (s.2 >>> 1) + 1 = s.2 := by rw [Nat.shiftRight_eq_div_pow]; omega
-    rw [val_mul _ c, toZMod_mul, e, e2, hexp, mul_comm]
-  · rename_i h
-    have : s.2 = 0 := by simpa using h
-    refine ⟨c, ?_⟩
-    rw [e, this]; simp
-
-theorem foldl_winStep {a : Fp} (ha : Canonical a) (l : List (Nat × Nat))
-    (hl : ∀ s ∈ l, s.2 = 0 ∨ (s.2 % 2 = 1 ∧ s.2 < 32))
-    (acc : Fp) (hacc : Canonical acc) (v : Nat)
-    (hv : toZMod acc.val = toZMod a.val ^ v) :
-    Canonical (l.foldl (winStep (oddTable a)) acc) ∧
-      toZMod (l.foldl (winStep (oddTable a)) acc).val =
-        toZMod a.val ^ l.foldl (fun v s => v * 2 ^ s.1 + s.2) v := by
-  induction l generalizing acc v with
-  | nil => exact ⟨hacc, hv⟩
-  | cons s l ih =>
-    obtain ⟨c, e⟩ := winStep_spec ha hacc (hl s List.mem_cons_self)
-    have := ih (fun x hx => hl x (List.mem_cons_of_mem s hx)) _ c (v * 2 ^ s.1 + s.2)
-      (by rw [e, hv, ← pow_mul, ← pow_add])
-    simpa using this
-
-/-- A valid window program computes the field power by its exponent. -/
-theorem powWin_spec {a : Fp} (ha : Canonical a) {prog : WinProg} (hp : prog.Valid) :
-    Canonical (powWin a prog) ∧ (powWin a prog).val = a.val ^ winExp prog := by
-  obtain ⟨h1, h2, h3⟩ := hp
-  have hj : prog.1 >>> 1 < 16 := by rw [Nat.shiftRight_eq_div_pow]; omega
-  have hz : (powWin a prog) = prog.2.toList.foldl (winStep (oddTable a)) (oddIter a (prog.1 >>> 1)) := by
-    unfold powWin
-    dsimp only
-    rw [oddTable_getElem! a hj, ← Array.foldl_toList]
-  obtain ⟨c0, e0⟩ := oddIter_spec ha (prog.1 >>> 1)
-  have hv : toZMod (oddIter a (prog.1 >>> 1)).val = toZMod a.val ^ prog.1 := by
-    have hexp : 2 * (prog.1 >>> 1) + 1 = prog.1 := by rw [Nat.shiftRight_eq_div_pow]; omega
-    rw [e0, hexp]
-  obtain ⟨c, e⟩ := foldl_winStep ha prog.2.toList h3 _ c0 prog.1 hv
-  rw [hz]
-  refine ⟨c, ?_⟩
-  rw [← toZMod_pow] at e
-  exact toZMod.injective e
-
-theorem powWin_canonical {a : Fp} (ha : Canonical a) {prog : WinProg} (hp : prog.Valid) :
-    Canonical (powWin a prog) :=
-  (powWin_spec ha hp).1
-
-/-- The window power in the spec's `powNat` form, for a program of `e`. -/
-theorem val_powWin_powNat {a : Fp} (ha : Canonical a) {prog : WinProg} (hp : prog.Valid)
-    {e : Nat} (he : winExp prog = e) :
-    (powWin a prog).val = EthLib.Cryptography.Bls.Fp.powNat a.val e := by
-  rw [(powWin_spec ha hp).2, he, powNat_eq_monoid_pow]
-
-theorem sqrtWin_valid : sqrtWin.Valid := by
-  unfold sqrtWin WinProg.Valid; decide +kernel
-
-theorem invSqrtWin_valid : invSqrtWin.Valid := by
-  unfold invSqrtWin WinProg.Valid; decide +kernel
-
-theorem winExp_sqrtWin : winExp sqrtWin = (modulus + 1) / 4 := by
-  unfold sqrtWin winExp; decide +kernel
-
-theorem winExp_invSqrtWin : winExp invSqrtWin = (modulus - 3) / 4 := by
-  unfold invSqrtWin winExp; decide +kernel
-
-theorem powWin_sqrtWin_canonical {a : Fp} (ha : Canonical a) : Canonical (powWin a sqrtWin) :=
-  powWin_canonical ha sqrtWin_valid
-
-theorem val_powWin_sqrtWin {a : Fp} (ha : Canonical a) :
-    (powWin a sqrtWin).val =
-      EthLib.Cryptography.Bls.Fp.powNat a.val ((EthLib.Cryptography.Bls.Fp.modulus + 1) / 4) :=
-  val_powWin_powNat ha sqrtWin_valid winExp_sqrtWin
-
-theorem powWin_invSqrtWin_canonical {a : Fp} (ha : Canonical a) :
-    Canonical (powWin a invSqrtWin) :=
-  powWin_canonical ha invSqrtWin_valid
-
-theorem val_powWin_invSqrtWin {a : Fp} (ha : Canonical a) :
-    (powWin a invSqrtWin).val =
-      EthLib.Cryptography.Bls.Fp.powNat a.val ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4) :=
-  val_powWin_powNat ha invSqrtWin_valid winExp_invSqrtWin
-
 theorem powNat_eq (a : Fp) (e : Nat) : powNat a e = powNibbles a (nibbles e) := rfl
 
 theorem powNat_canonical {a : Fp} (ha : Canonical a) (e : Nat) : Canonical (powNat a e) :=
@@ -1359,37 +1170,38 @@ theorem div_def (a b : Fp) : a / b = a * b.inverse := rfl
 /-! ## Square root -/
 
 theorem sqrt_eq (a : Fp) : sqrt a =
-    if (mul (powWin a sqrtWin) (powWin a sqrtWin)).beq a then
-      .ok (powWin a sqrtWin)
+    if (mul (powNibbles a (nibbles ((modulus + 1) / 4)))
+        (powNibbles a (nibbles ((modulus + 1) / 4)))).beq a then
+      .ok (powNibbles a (nibbles ((modulus + 1) / 4)))
     else .error .notASquare := rfl
 
 /-- `sqrt` computes the spec's `Fp.sqrt` (through `val`). -/
 theorem sqrt_map_val {a : Fp} (ha : Canonical a) :
     (sqrt a).map val = EthLib.Cryptography.Bls.Fp.sqrt a.val := by
   rw [sqrt_eq, EthLib.Cryptography.Bls.Fp.sqrt]
-  have hc := powWin_sqrtWin_canonical ha
-  have hv' := val_powWin_sqrtWin ha
-  generalize powWin a sqrtWin = c at *
+  obtain ⟨hc, hv⟩ := powNibbles_nibbles ha ((modulus + 1) / 4)
+  have hv' := val_powNibbles_powNat ha ((modulus + 1) / 4)
+  generalize powNibbles a (nibbles ((modulus + 1) / 4)) = c at *
   have hiff : (mul c c).beq a = true ↔
       EthLib.Cryptography.Bls.Fp.beq
         (EthLib.Cryptography.Bls.Fp.powNat a.val ((EthLib.Cryptography.Bls.Fp.modulus + 1) / 4) *
           EthLib.Cryptography.Bls.Fp.powNat a.val ((EthLib.Cryptography.Bls.Fp.modulus + 1) / 4))
         a.val = true := by
     rw [beq_iff (mul_canonical _ hc) ha, val_mul _ hc, beq_eq_true_iff, hv']
+    exact Iff.rfl
   by_cases hb : (mul c c).beq a = true
   · rw [if_pos hb, if_pos (hiff.mp hb)]
     show Except.ok c.val = _
     rw [hv']
+    rfl
   · rw [if_neg hb, if_neg (fun h => hb (hiff.mpr h))]
     rfl
 
 /-- Every root `sqrt` returns is canonical. -/
 theorem sqrt_ok_canonical {a c : Fp} (ha : Canonical a) (h : sqrt a = .ok c) : Canonical c := by
   rw [sqrt_eq] at h
-  have hc := powWin_sqrtWin_canonical ha
-  generalize powWin a sqrtWin = d at hc h
   split at h
-  · cases h; exact hc
+  · cases h; exact powNibbles_canonical ha _
   · cases h
 
 /-! ## Sign and parity -/

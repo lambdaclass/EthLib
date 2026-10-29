@@ -160,6 +160,11 @@ def powNat (base : Fp2) (e : Nat) : Fp2 :=
 termination_by e
 decreasing_by omega
 
+/-- Digits of `(p − 3) / 4`. For `t ≠ 0`, `δ = t^((p−3)/4)` satisfies
+`δ²·t = ±1` (Euler's criterion); `+1` iff `t` is a square, and then `δ·t` is
+a square root of `t` and `δ` its inverse. -/
+def invSqrtDigits : ByteArray := Fp.nibbles ((Fp.modulus - 3) / 4)
+
 /-- `1/2`. -/
 def halfFp : Fp := (Fp.ofNat 2).inverse
 
@@ -168,8 +173,7 @@ root must normalize its sign.
 
 For `a = a0 + a1 i` with `a1 ≠ 0`, a root `c0 + c1 i` satisfies
 `c0² = (a0 + s)/2` and `c1² = (s − a0)/2` for `s` a square root of the
-norm `a0² + a1²`. With `t = (a0 + s)/2` and `δ = t^((p−3)/4)` (`Fp.invSqrtWin`; for `t ≠ 0`,
-`δ²·t = ±1` by Euler's criterion, `+1` iff `t` is a square):
+norm `a0² + a1²`. With `t = (a0 + s)/2` and `δ = t^((p−3)/4)`:
 if `t` is a square, `c0 = δt` and `c1 = a1/(2c0) = a1δ/2`; otherwise `−t`
 is, and taking `−s` instead gives `c1 = δt`, `c0 = a1/(2c1) = −a1δ/2`.
 (`t ≠ 0` here: `t = 0` would force `a1 = 0`.)
@@ -181,7 +185,7 @@ def sqrt (a : Fp2) : Except BlsError Fp2 :=
   if a.c1.isZero then
     -- `a = a0 ∈ Fp`: `δ·a0` is a root of `a0` if `a0` is a square (or
     -- zero), otherwise of `−a0`, and then `i·δ·a0` is a root of `a0`.
-    let d := Fp.powWin a.c0 Fp.invSqrtWin
+    let d := Fp.powNibbles a.c0 invSqrtDigits
     let s := d * a.c0
     if (d * s).beq Fp.one then .ok (mk s Fp.zero) else .ok (mk Fp.zero s)
   else
@@ -190,7 +194,7 @@ def sqrt (a : Fp2) : Except BlsError Fp2 :=
     | .error _ => .error .notASquare
     | .ok s =>
       let t := (a.c0 + s) * halfFp
-      let d := Fp.powWin t Fp.invSqrtWin
+      let d := Fp.powNibbles t invSqrtDigits
       let dt := d * t
       let hd := a.c1 * d * halfFp
       if (d * dt).beq Fp.one then .ok (mk dt hd) else .ok (mk (-hd) dt)
@@ -202,7 +206,7 @@ and `t' = (a0 − s)/2`, and `−1` is a non-square, so exactly one of `t`,
 an `s` skip the norm's exponentiation inside `sqrt`. -/
 def sqrtGivenNorm (a : Fp2) (s : Fp) : Fp2 :=
   let t := (a.c0 + s) * halfFp
-  let d := Fp.powWin t Fp.invSqrtWin
+  let d := Fp.powNibbles t invSqrtDigits
   let dt := d * t
   let hd := a.c1 * d * halfFp
   if (d * dt).beq Fp.one then mk dt hd else mk (-hd) dt
