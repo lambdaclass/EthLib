@@ -329,16 +329,16 @@ open EthLib.Cryptography.Bls (BlsError)
 
 /-- `sqrtGivenNorm` with `1/2` and the exponent's digits as parameters (the kernel would
 otherwise evaluate these concrete constants while checking zeta-reductions). -/
-def sqrtGN (half : Fp) (dg : ByteArray) (a : Fp2) (s : Fp) : Fp2 :=
+def sqrtGN (half : Fp) (dg : Fp.WinProg) (a : Fp2) (s : Fp) : Fp2 :=
   let t := (a.c0 + s) * half
-  let d := Fp.powNibbles t dg
+  let d := Fp.powWin t dg
   let dt := d * t
   let hd := a.c1 * d * half
   if (d * dt).beq Fp.one then mk dt hd else mk (-hd) dt
 
-theorem sqrtGivenNorm_eq_GN : sqrtGivenNorm = sqrtGN halfFp invSqrtDigits := rfl
+theorem sqrtGivenNorm_eq_GN : sqrtGivenNorm = sqrtGN halfFp Fp.invSqrtWin := rfl
 
-theorem sqrtOk_eq_ok (half : Fp) (dg : ByteArray) (a : Fp2) (s : Fp) :
+theorem sqrtOk_eq_ok (half : Fp) (dg : Fp.WinProg) (a : Fp2) (s : Fp) :
     sqrtOk half dg a s = .ok (sqrtGN half dg a s) := by
   unfold sqrtOk sqrtGN
   dsimp only
@@ -367,7 +367,8 @@ theorem sqrtGivenNorm_spec {a : Fp2} {s : Fp} (ha : Canonical a) (hs : s.Canonic
       (sqrtGivenNorm a s).toSpec = Mirror.HashToCurve.sqrtGivenNorm a.toSpec s.val := by
   rw [sqrtGivenNorm_eq_GN, mirror_sqrtGivenNorm_eq]
   obtain ⟨h1, h2⟩ := sqrtOk_spec halfFp (EthLib.Cryptography.Bls.Fp.ofNat 2).inverse halfFp_canonical halfFp_val
-    ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4) ha hs
+    ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4) Fp.invSqrtWin Fp.invSqrtWin_valid
+    Fp.winExp_invSqrtWin ha hs
   rw [sqrtOk_eq_ok, sqrtAltOk_eq_ok] at h1
   exact ⟨h2 _ (sqrtOk_eq_ok _ _ _ _), Except.ok.inj h1⟩
 
@@ -469,7 +470,7 @@ def swuG (x1e nBA A B : Fp2) (s : Fp) (slow : Fp2 → Fp2 → Fp2 → Fp2 → Fp
 
 theorem simpleSwuWith_eq_G : simpleSwuWith =
     swuG x1Exceptional negBOverA Aprime Bprime s125 simpleSwuSlow sgn0Fp2
-      (fun n => Fp.powNibbles n Fp.sqrtDigits) Fp2.sqrtGivenNorm := rfl
+      (fun n => Fp.powWin n Fp.sqrtWin) Fp2.sqrtGivenNorm := rfl
 
 theorem match_ok {motive : Except BlsError Fp2 → Sort 1} (y : Fp2)
     (h1 : (y : Fp2) → motive (.ok y)) (h2 : (a : BlsError) → motive (.error a)) :
@@ -790,7 +791,7 @@ theorem simpleSwuWith_spec {u zu2 denom di : Fp2} (hu : u.Canonical) (hz : zu2.C
   obtain ⟨_, vs⟩ := HashConst.s125_spec
   exact swuG_spec _ _ _ _ _ _ _ _ _ _ hx vx hn vn hA vA hB vB vs _ _ (fun hu hz hx hg => swuSlow_spec' hu hz hx hg)
     _ _ (fun y hy => HashConst.sgn0Fp2_spec hy) _ _
-    (fun n hn => ⟨Fp.powNibbles_canonical hn _, Fp.val_powNibbles_powNat hn _⟩) _ _
+    (fun n hn => ⟨Fp.powWin_sqrtWin_canonical hn, Fp.val_powWin_sqrtWin hn⟩) _ _
     (fun a t ha ht => Fp2.sqrtGivenNorm_spec ha ht) hu hz hd hi
 
 
