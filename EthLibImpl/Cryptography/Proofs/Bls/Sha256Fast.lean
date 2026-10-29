@@ -797,31 +797,50 @@ theorem bget2 (b : ByteArray) (j : Nat) : b[j]! = b.data[j]! := by
   · simp [ByteArray.get!, getElem!_pos d j h]
   · simp [ByteArray.get!, getElem!_neg d j h]
 
-/-- The fast padding as folds. -/
-def fastPad (msg : ByteArray) : ByteArray :=
-  (List.range' 0 8).foldl (fun (B : ByteArray) i => B.push (lenByte (UInt64.ofNat (msg.size * 8)) i))
-    ((List.range' 0 ((56 + 64 - ((msg.size + 1) % 64)) % 64)).foldl
-      (fun (B : ByteArray) _ => B.push 0) (msg.push 0x80))
+/-- The zero run is one bulk copy of `n ≤ 64` zero bytes. -/
+theorem zeroRun (b : ByteArray) (n : Nat) (hn : n ≤ 64) :
+    (Sha256Fast.padZero b n).size = b.size + n ∧
+    ∀ j, j < b.size + n → (Sha256Fast.padZero b n).data[j]! = if j < b.size then b.data[j]! else 0 := by
+  have hd : (Sha256Fast.padZero b n).data = b.data ++ Array.replicate n 0 := by
+    unfold Sha256Fast.padZero ByteArray.copySlice
+    have e1 : b.data.extract 0 b.size = b.data := by
+      rw [← ByteArray.size_data]; exact Array.extract_size
+    have e2 : Sha256Fast.zeros64.data.size = 64 := by
+      show (Array.replicate 64 (0:UInt8)).size = 64
+      simp
+    have e3 : Sha256Fast.zeros64.data.extract 0 n = Array.replicate n 0 := by
+      show (Array.replicate 64 (0:UInt8)).extract 0 n = _
+      rw [Array.extract_replicate]; congr 1; omega
+    have e4 : b.data.extract (b.size + min n (Sha256Fast.zeros64.data.size - 0)) b.data.size = #[] := by
+      apply Array.extract_eq_empty_of_le
+      rw [ByteArray.size_data]; omega
+    show b.data.extract 0 b.size ++ Sha256Fast.zeros64.data.extract 0 (0 + n) ++
+      b.data.extract (b.size + min n (Sha256Fast.zeros64.data.size - 0)) b.data.size = _
+    rw [e1, Nat.zero_add, e3, e4]; simp
+  have hsz : (Sha256Fast.padZero b n).size = b.size + n := by
+    rw [← ByteArray.size_data, hd]; simp
+  refine ⟨hsz, fun j hj => ?_⟩
+  rw [hd]
+  have hsd : b.data.size = b.size := ByteArray.size_data
+  have hj' : j < (b.data ++ Array.replicate n (0:UInt8)).size := by simp; omega
+  rw [getElem!_pos _ j hj', Array.getElem_append]
+  by_cases h : j < b.size
+  · rw [dif_pos (by omega), if_pos h, getElem!_pos _ j (by omega)]
+  · rw [dif_neg (by omega), if_neg h]; simp
 
-theorem fastPad_eq (msg : ByteArray) : Sha256Fast.padded msg = fastPad msg := by
-  unfold Sha256Fast.padded
-  show forIn (m := Id) (β := ByteArray) [:8] (forIn (m := Id) [:(56 + 64 - ((msg.size + 1) % 64)) % 64] (msg.push 0x80)
-      (fun (_ : Nat) (B : ByteArray) => ForInStep.yield (B.push 0)))
-      (fun (i : Nat) (B : ByteArray) => ForInStep.yield (B.push (lenByte (UInt64.ofNat (msg.size * 8)) i))) = _
-  rw [forIn_zero_yield, forIn_zero_yield]
-  rfl
+theorem pushLen_eq (b : ByteArray) (bl : UInt64) :
+    Sha256Fast.pushLen b bl = (List.range' 0 8).foldl (fun (B : ByteArray) i => B.push (lenByte bl i)) b := rfl
 
 theorem fastPad_facts (msg : ByteArray) :
     (Sha256Fast.padded msg).size = padTotal msg.size ∧
     ∀ j, j < padTotal msg.size → (Sha256Fast.padded msg).data[j]! = padFn msg j := by
   obtain ⟨pf1, pf2, pf3, pf4⟩ := padTotal_facts msg.size
-  rw [fastPad_eq]
-  unfold fastPad
+  unfold Sha256Fast.padded
+  simp only [pushLen_eq]
   have hP : (msg.push 0x80).size = msg.size + 1 := by
     cases msg; simp [ByteArray.push, ByteArray.size]
-  obtain ⟨z1, z2⟩ := pushRange (msg.push 0x80) (fun _ => 0) ((56 + 64 - ((msg.size + 1) % 64)) % 64)
-  generalize (List.range' 0 ((56 + 64 - ((msg.size + 1) % 64)) % 64)).foldl
-    (fun (B : ByteArray) i => B.push ((fun (_ : Nat) => (0:UInt8)) i)) (msg.push 0x80) = Z at z1 z2
+  obtain ⟨z1, z2⟩ := zeroRun (msg.push 0x80) ((56 + 64 - ((msg.size + 1) % 64)) % 64) (by omega)
+  generalize Sha256Fast.padZero (msg.push 0x80) ((56 + 64 - ((msg.size + 1) % 64)) % 64) = Z at z1 z2
   rw [hP] at z1 z2
   obtain ⟨y1, y2⟩ := pushRange Z (fun i => lenByte (UInt64.ofNat (msg.size * 8)) i) 8
   generalize (List.range' 0 8).foldl
