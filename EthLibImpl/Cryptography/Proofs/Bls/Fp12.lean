@@ -456,6 +456,94 @@ theorem toSpec_cycSqr {x : Fp12} (hx : Canonical x) :
     toSpec_sqrFp4_snd hx00 hx11, toSpec_sqrFp4_snd hx10 hx02, toSpec_sqrFp4_snd hx01 hx12]
   rfl
 
+/-! ## Compressed squaring and decompression -/
+
+/-- All four compressed coordinates canonical. -/
+def C4.Canonical (x : C4) : Prop :=
+  x.g1.Canonical ∧ x.g2.Canonical ∧ x.g3.Canonical ∧ x.g5.Canonical
+
+/-- The mirror's compressed coordinates with the same values. -/
+def C4.toSpec (x : C4) : EthLibImpl.Cryptography.Bls.Mirror.C4 :=
+  ⟨x.g1.toSpec, x.g2.toSpec, x.g3.toSpec, x.g5.toSpec⟩
+
+theorem compress_spec {x : Fp12} (hx : Canonical x) :
+    (compress x).Canonical ∧
+      (compress x).toSpec = EthLibImpl.Cryptography.Bls.Mirror.compress (toSpec x) :=
+  ⟨⟨hx.1.2.1, hx.1.2.2, hx.2.1, hx.2.2.2⟩, rfl⟩
+
+theorem csqr_eq (x : C4) : csqr x =
+    ⟨threeSubTwo (sqrFp4 x.g3 x.g2).1 x.g1, threeSubTwo (sqrFp4 x.g1 x.g5).1 x.g2,
+     threeAddTwo (Fp2.mulByXiI (sqrFp4 x.g1 x.g5).2) x.g3, threeAddTwo (sqrFp4 x.g3 x.g2).2 x.g5⟩ :=
+  rfl
+
+theorem mirror_csqr_eq (x : EthLibImpl.Cryptography.Bls.Mirror.C4) :
+    EthLibImpl.Cryptography.Bls.Mirror.csqr x =
+    ⟨EthLibImpl.Cryptography.Bls.Mirror.threeSubTwo
+        (EthLibImpl.Cryptography.Bls.Mirror.sqrFp4 x.g3 x.g2).1 x.g1,
+     EthLibImpl.Cryptography.Bls.Mirror.threeSubTwo
+        (EthLibImpl.Cryptography.Bls.Mirror.sqrFp4 x.g1 x.g5).1 x.g2,
+     EthLibImpl.Cryptography.Bls.Mirror.threeAddTwo
+        (EthLibImpl.Cryptography.Bls.Mirror.sqrFp4 x.g1 x.g5).2.mulByOnePlusI x.g3,
+     EthLibImpl.Cryptography.Bls.Mirror.threeAddTwo
+        (EthLibImpl.Cryptography.Bls.Mirror.sqrFp4 x.g3 x.g2).2 x.g5⟩ := rfl
+
+theorem csqr_canonical {x : C4} (hx : x.Canonical) : (csqr x).Canonical := by
+  obtain ⟨h1, h2, h3, h5⟩ := hx
+  have s1 := sqrFp4_canonical h3 h2
+  have s2 := sqrFp4_canonical h1 h5
+  rw [csqr_eq]
+  exact ⟨threeSubTwo_canonical s1.1 h1, threeSubTwo_canonical s2.1 h2,
+    threeAddTwo_canonical (Fp2.mulByXiI_canonical s2.2) h3, threeAddTwo_canonical s1.2 h5⟩
+
+theorem toSpec_csqr {x : C4} (hx : x.Canonical) :
+    (csqr x).toSpec = EthLibImpl.Cryptography.Bls.Mirror.csqr x.toSpec := by
+  obtain ⟨h1, h2, h3, h5⟩ := hx
+  have s1 := sqrFp4_canonical h3 h2
+  have s2 := sqrFp4_canonical h1 h5
+  rw [csqr_eq, mirror_csqr_eq]
+  show (⟨_, _, _, _⟩ : EthLibImpl.Cryptography.Bls.Mirror.C4) = ⟨_, _, _, _⟩
+  rw [toSpec_threeSubTwo s1.1 h1, toSpec_threeSubTwo s2.1 h2,
+    toSpec_threeAddTwo (Fp2.mulByXiI_canonical s2.2) h3, toSpec_threeAddTwo s1.2 h5,
+    Fp2.toSpec_mulByXiI s2.2, toSpec_sqrFp4_fst h3 h2, toSpec_sqrFp4_fst h1 h5,
+    toSpec_sqrFp4_snd h1 h5, toSpec_sqrFp4_snd h3 h2]
+  rfl
+
+theorem g4Frac_spec {x : C4} (hx : x.Canonical) :
+    (g4Frac x).1.Canonical ∧ (g4Frac x).2.Canonical ∧
+      ((g4Frac x).1.toSpec, (g4Frac x).2.toSpec) =
+        EthLibImpl.Cryptography.Bls.Mirror.g4Frac x.toSpec := by
+  obtain ⟨h1, h2, h3, h5⟩ := hx
+  unfold g4Frac EthLibImpl.Cryptography.Bls.Mirror.g4Frac
+  show _ ∧ _ ∧ _ = if x.g3.toSpec.isZero then _ else _
+  rw [Fp2.isZero_eq h3]
+  by_cases h : x.g3.isZero = true
+  · simp only [h, if_true]
+    refine ⟨by push, h2, ?_⟩
+    simp only [C4.toSpec, Prod.mk.injEq]
+    push
+    exact ⟨trivial, trivial⟩
+  · simp only [h, Bool.false_eq_true, if_false]
+    refine ⟨by push, by push, ?_⟩
+    simp only [C4.toSpec, Prod.mk.injEq]
+    constructor <;> push
+
+theorem rebuild_canonical {x : C4} {g4 : Fp2} (hx : x.Canonical) (h4 : g4.Canonical) :
+    (rebuild x g4).Canonical := by
+  obtain ⟨h1, h2, h3, h5⟩ := hx
+  have h0 := Fp2.one_canonical
+  simp only [rebuild, Canonical]
+  refine ⟨⟨?_, h1, h2⟩, h3, h4, h5⟩
+  push
+
+theorem toSpec_rebuild {x : C4} {g4 : Fp2} (hx : x.Canonical) (h4 : g4.Canonical) :
+    toSpec (rebuild x g4) =
+      EthLibImpl.Cryptography.Bls.Mirror.rebuild x.toSpec g4.toSpec := by
+  obtain ⟨h1, h2, h3, h5⟩ := hx
+  have h0 := Fp2.one_canonical
+  simp only [rebuild, EthLibImpl.Cryptography.Bls.Mirror.rebuild, toSpec, Fp6.toSpec, C4.toSpec]
+  push
+  rw [Fp2.toSpec_one]
+
 /-! ## Sparse line product -/
 
 theorem mulBy014_canonical {x : Fp12} {b0 b1 b4 : Fp2} (hx : Canonical x) (hb0 : b0.Canonical)

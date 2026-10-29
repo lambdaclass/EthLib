@@ -164,13 +164,64 @@ def millerLoop (pis : List PairInput) : Fp12 :=
 
 /-! ## Final exponentiation -/
 
-def cycPowMsb (g : Fp12) (k : Nat) : Nat → Fp12 → Fp12
-  | 0, acc => acc
-  | n + 1, acc =>
-    let acc := cycSqr acc
-    cycPowMsb g k n (if (k >>> n) &&& 1 = 1 then acc * g else acc)
+/-- The four compressed coordinates `c0.c1, c0.c2, c1.c0, c1.c2` of an `Fp12`
+element (the implementation's `Fp12.C4`). -/
+structure C4 where
+  g1 : Fp2
+  g2 : Fp2
+  g3 : Fp2
+  g5 : Fp2
 
-def cycPowAbsX (g : Fp12) : Fp12 := cycPowMsb g blsX 63 g
+/-- The implementation's `Fp12.compress`. -/
+def compress (a : Fp12) : C4 := ⟨a.c0.c1, a.c0.c2, a.c1.c0, a.c1.c2⟩
+
+/-- The implementation's `Fp12.csqr`: `cycSqr` restricted to the compressed
+coordinates. -/
+def csqr (x : C4) : C4 :=
+  let (t10, t11) := sqrFp4 x.g3 x.g2
+  let (t20, t21) := sqrFp4 x.g1 x.g5
+  ⟨threeSubTwo t10 x.g1, threeSubTwo t20 x.g2,
+   threeAddTwo t21.mulByOnePlusI x.g3, threeAddTwo t11 x.g5⟩
+
+/-- The implementation's `Fp12.g4Frac`. -/
+def g4Frac (x : C4) : Fp2 × Fp2 :=
+  if x.g3.isZero then (x.g1 * x.g5 + x.g1 * x.g5, x.g2)
+  else
+    let t0 := x.g1 * x.g1
+    let t1 := ((t0 - x.g2) + (t0 - x.g2)) + t0
+    ((x.g5 * x.g5).mulByOnePlusI + t1, (x.g3 + x.g3) + (x.g3 + x.g3))
+
+/-- The implementation's `Fp12.rebuild`. -/
+def rebuild (x : C4) (g4 : Fp2) : Fp12 :=
+  let t1 := x.g2 * x.g1
+  let t2 := ((g4 * g4 - t1) + (g4 * g4 - t1)) - t1
+  let t2 := t2 + x.g3 * x.g5
+  ⟨⟨t2.mulByOnePlusI + Fp2.one, x.g1, x.g2⟩, ⟨x.g3, g4, x.g5⟩⟩
+
+/-- Decompression of one element, with the spec's `inverse 0 = 0`. -/
+def decompress (x : C4) : Fp12 :=
+  rebuild x ((g4Frac x).1 * (g4Frac x).2.inverse)
+
+/-- The implementation's `csqrN`. -/
+def csqrN (x : C4) : Nat → C4
+  | 0 => x
+  | n + 1 => csqrN (csqr x) n
+
+/-- `decompress6`: six independent decompressions (the implementation batches
+the inversions). -/
+def decompress6 (x0 x1 x2 x3 x4 x5 : C4) : Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12 :=
+  (decompress x0, decompress x1, decompress x2, decompress x3, decompress x4, decompress x5)
+
+/-- The implementation's `cycPowAbsX`. -/
+def cycPowAbsX (g : Fp12) : Fp12 :=
+  let c16 := csqrN (compress g) 16
+  let c48 := csqrN c16 32
+  let c57 := csqrN c48 9
+  let c60 := csqrN c57 3
+  let c62 := csqrN c60 2
+  let c63 := csqr c62
+  let (d16, d48, d57, d60, d62, d63) := decompress6 c16 c48 c57 c60 c62 c63
+  d63 * d62 * d60 * d57 * d48 * d16
 
 /-- The implementation's `finalExpCube`. -/
 def finalExpCube (f : Fp12) : Fp12 :=
