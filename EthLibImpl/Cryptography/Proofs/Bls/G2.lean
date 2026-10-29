@@ -365,17 +365,14 @@ theorem halfFp_canonical : halfFp.Canonical := Fp.inverse_canonical (Fp.ofNat_ca
 theorem halfFp_val : halfFp.val = (EthLib.Cryptography.Bls.Fp.ofNat 2).inverse := by
   unfold halfFp; rw [Fp.val_inverse (Fp.ofNat_canonical 2), Fp.val_ofNat]
 
-theorem invSqrtDigits_eq :
-    invSqrtDigits = Fp.nibbles ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4) := rfl
-
 open EthLib.Cryptography.Bls (BlsError)
 
 /-- `sqrt` with `Fp.sqrt`, `1/2` and the exponent's digits as parameters (the kernel would
 otherwise evaluate these concrete constants while checking zeta-reductions). -/
-def sqrtP (half : Fp) (dg : ByteArray) (sq : Fp → Except BlsError Fp) (a : Fp2) :
+def sqrtP (half : Fp) (dg : Fp.WinProg) (sq : Fp → Except BlsError Fp) (a : Fp2) :
     Except BlsError Fp2 :=
   if a.c1.isZero then
-    let d := Fp.powNibbles a.c0 dg
+    let d := Fp.powWin a.c0 dg
     let s := d * a.c0
     if (d * s).beq Fp.one then .ok (mk s Fp.zero) else .ok (mk Fp.zero s)
   else
@@ -384,26 +381,26 @@ def sqrtP (half : Fp) (dg : ByteArray) (sq : Fp → Except BlsError Fp) (a : Fp2
     | .error _ => .error .notASquare
     | .ok s =>
       let t := (a.c0 + s) * half
-      let d := Fp.powNibbles t dg
+      let d := Fp.powWin t dg
       let dt := d * t
       let hd := a.c1 * d * half
       if (d * dt).beq Fp.one then .ok (mk dt hd) else .ok (mk (-hd) dt)
 
-theorem sqrt_eq_P : sqrt = sqrtP halfFp invSqrtDigits Fp.sqrt := rfl
+theorem sqrt_eq_P : sqrt = sqrtP halfFp Fp.invSqrtWin Fp.sqrt := rfl
 
 /-- The part of `sqrtP` after the norm's square root `s` is known. -/
-def sqrtOk (half : Fp) (dg : ByteArray) (a : Fp2) (s : Fp) : Except BlsError Fp2 :=
+def sqrtOk (half : Fp) (dg : Fp.WinProg) (a : Fp2) (s : Fp) : Except BlsError Fp2 :=
   let t := (a.c0 + s) * half
-  let d := Fp.powNibbles t dg
+  let d := Fp.powWin t dg
   let dt := d * t
   let hd := a.c1 * d * half
   if (d * dt).beq Fp.one then .ok (mk dt hd) else .ok (mk (-hd) dt)
 
 /-- `sqrtP` with its second branch factored through `sqrtOk`. -/
-def sqrtP2 (half : Fp) (dg : ByteArray) (sq : Fp → Except BlsError Fp) (a : Fp2) :
+def sqrtP2 (half : Fp) (dg : Fp.WinProg) (sq : Fp → Except BlsError Fp) (a : Fp2) :
     Except BlsError Fp2 :=
   if a.c1.isZero then
-    let d := Fp.powNibbles a.c0 dg
+    let d := Fp.powWin a.c0 dg
     let s := d * a.c0
     if (d * s).beq Fp.one then .ok (mk s Fp.zero) else .ok (mk Fp.zero s)
   else
@@ -412,10 +409,10 @@ def sqrtP2 (half : Fp) (dg : ByteArray) (sq : Fp → Except BlsError Fp) (a : Fp
     | .error _ => .error .notASquare
     | .ok s => sqrtOk half dg a s
 
-theorem sqrtP_eq_P2 (half : Fp) (dg : ByteArray) (sq : Fp → Except BlsError Fp) (a : Fp2) :
+theorem sqrtP_eq_P2 (half : Fp) (dg : Fp.WinProg) (sq : Fp → Except BlsError Fp) (a : Fp2) :
     sqrtP half dg sq a = sqrtP2 half dg sq a := rfl
 
-theorem sqrt_eq_P2 : sqrt = sqrtP2 halfFp invSqrtDigits Fp.sqrt := by
+theorem sqrt_eq_P2 : sqrt = sqrtP2 halfFp Fp.invSqrtWin Fp.sqrt := by
   rw [sqrt_eq_P]; funext a; exact sqrtP_eq_P2 _ _ _ a
 
 /-- The spec-level `sqrtAlt` with `Fp.sqrt`, `1/2` and the exponent as parameters. -/
@@ -479,24 +476,24 @@ theorem sqrtAlt_eq_P2 : EthLib.Cryptography.Bls.Fp2.sqrtAlt =
   rw [sqrtAlt_eq_P]; funext a; exact sqrtAltP_eq_P2 _ _ _ a
 
 theorem sqrtOk_spec (half : Fp) (half' : EthLib.Cryptography.Bls.Fp) (hh : half.Canonical)
-    (hhv : half.val = half') (e : Nat) {x : Fp2} (hx : Canonical x) {s : Fp}
+    (hhv : half.val = half') (e : Nat) (dg : Fp.WinProg) (hdg : dg.Valid)
+    (hexp : Fp.winExp dg = e) {x : Fp2} (hx : Canonical x) {s : Fp}
     (hs : s.Canonical) :
-    (sqrtOk half (Fp.nibbles e) x s).map toSpec = sqrtAltOk half' e (toSpec x) s.val ∧
-      ∀ y, sqrtOk half (Fp.nibbles e) x s = .ok y → Canonical y := by
+    (sqrtOk half dg x s).map toSpec = sqrtAltOk half' e (toSpec x) s.val ∧
+      ∀ y, sqrtOk half dg x s = .ok y → Canonical y := by
   subst hhv
   unfold sqrtOk sqrtAltOk
   dsimp only
   have htc : ((x.c0 + s) * half).Canonical := G1.mul_c hh
   have htv : ((x.c0 + s) * half).val = ((toSpec x).c0 + s.val) * half.val := by
     rw [G1.mul_v hh, G1.add_v hx.1 hs]; rfl
-  have hD : (Fp.powNibbles ((x.c0 + s) * half) (Fp.nibbles e)).Canonical :=
-    Fp.powNibbles_canonical htc _
-  have hDs : (Fp.powNibbles ((x.c0 + s) * half) (Fp.nibbles e)).val =
+  have hD : (Fp.powWin ((x.c0 + s) * half) dg).Canonical := Fp.powWin_canonical htc hdg
+  have hDs : (Fp.powWin ((x.c0 + s) * half) dg).val =
       EthLib.Cryptography.Bls.Fp.powNat (((toSpec x).c0 + s.val) * half.val) e := by
-    rw [Fp.val_powNibbles_powNat htc, htv]
+    rw [Fp.val_powWin_powNat htc hdg hexp, htv]
   rw [← hDs, ← htv]
   generalize (x.c0 + s) * half = t at htc htv hD hDs ⊢
-  generalize Fp.powNibbles t (Fp.nibbles e) = D at hD hDs ⊢
+  generalize Fp.powWin t dg = D at hD hDs ⊢
   have hDt : (D * t).Canonical := G1.mul_c htc
   have hDtv : (D * t).val = D.val * t.val := G1.mul_v htc
   have hDDt : (D * (D * t)).Canonical := G1.mul_c hDt
@@ -519,23 +516,24 @@ theorem sqrtOk_spec (half : Fp) (half' : EthLib.Cryptography.Bls.Fp) (hh : half.
     · cases hy; exact canonical_mk (G1.neg_c hh1) hDt
 
 theorem sqrtP2_spec (half : Fp) (half' : EthLib.Cryptography.Bls.Fp) (hh : half.Canonical)
-    (hhv : half.val = half') (e : Nat)
+    (hhv : half.val = half') (e : Nat) (dg : Fp.WinProg) (hdg : dg.Valid)
+    (hexp : Fp.winExp dg = e)
     (sq : Fp → Except BlsError Fp)
     (sq' : EthLib.Cryptography.Bls.Fp → Except BlsError EthLib.Cryptography.Bls.Fp)
     (hsq : ∀ a : Fp, a.Canonical → (sq a).map Fp.val = sq' a.val ∧
       ∀ c, sq a = .ok c → c.Canonical)
     {x : Fp2} (hx : Canonical x) :
-    (sqrtP2 half (Fp.nibbles e) sq x).map toSpec = sqrtAltP2 half' e sq' (toSpec x) ∧
-      ∀ y, sqrtP2 half (Fp.nibbles e) sq x = .ok y → Canonical y := by
+    (sqrtP2 half dg sq x).map toSpec = sqrtAltP2 half' e sq' (toSpec x) ∧
+      ∀ y, sqrtP2 half dg sq x = .ok y → Canonical y := by
   unfold sqrtP2 sqrtAltP2
   have hz : x.c1.isZero = (toSpec x).c1.isZero := fp_isZero_eq hx.2
   rw [hz]
   by_cases h : (toSpec x).c1.isZero = true
   · rw [if_pos h, if_pos h]
-    have hD : (Fp.powNibbles x.c0 (Fp.nibbles e)).Canonical := Fp.powNibbles_canonical hx.1 _
-    have hDs : (Fp.powNibbles x.c0 (Fp.nibbles e)).val =
-        EthLib.Cryptography.Bls.Fp.powNat (toSpec x).c0 e := Fp.val_powNibbles_powNat hx.1 _
-    generalize Fp.powNibbles x.c0 (Fp.nibbles e) = D at hD hDs ⊢
+    have hD : (Fp.powWin x.c0 dg).Canonical := Fp.powWin_canonical hx.1 hdg
+    have hDs : (Fp.powWin x.c0 dg).val =
+        EthLib.Cryptography.Bls.Fp.powNat (toSpec x).c0 e := Fp.val_powWin_powNat hx.1 hdg hexp
+    generalize Fp.powWin x.c0 dg = D at hD hDs ⊢
     rw [← hDs]
     dsimp only
     have hS : (D * x.c0).Canonical := G1.mul_c hx.1
@@ -569,13 +567,14 @@ theorem sqrtP2_spec (half : Fp) (half' : EthLib.Cryptography.Bls.Fp) (hh : half.
     rw [← hsm]
     rcases hs : sq (x.c0 * x.c0 + x.c1 * x.c1) with err | s
     · exact ⟨rfl, fun y hy => nomatch hy⟩
-    · exact sqrtOk_spec half half' hh hhv e hx (hsc s hs)
+    · exact sqrtOk_spec half half' hh hhv e dg hdg hexp hx (hsc s hs)
 
 theorem sqrt_spec {x : Fp2} (hx : Canonical x) :
     (sqrt x).map toSpec = EthLib.Cryptography.Bls.Fp2.sqrtAlt (toSpec x) ∧
       ∀ y, sqrt x = .ok y → Canonical y := by
   rw [sqrt_eq_P2, sqrtAlt_eq_P2]
   exact sqrtP2_spec halfFp _ halfFp_canonical halfFp_val ((EthLib.Cryptography.Bls.Fp.modulus - 3) / 4)
+    Fp.invSqrtWin Fp.invSqrtWin_valid Fp.winExp_invSqrtWin
     Fp.sqrt EthLib.Cryptography.Bls.Fp.sqrt
     (fun a ha => ⟨Fp.sqrt_map_val ha, fun c h => Fp.sqrt_ok_canonical ha h⟩) hx
 
