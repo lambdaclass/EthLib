@@ -173,7 +173,7 @@ def simpleSwuWith (u zu2 denom denomInv : Fp2) : Fp2 × Fp2 :=
     simpleSwuSlow u zu2 x1 gx1
   else
     let n1 := gx1.c0 * gx1.c0 + gx1.c1 * gx1.c1
-    let c := Fp.powWin n1 Fp.sqrtWin
+    let c := Fp.powNibbles n1 Fp.sqrtDigits
     if (c * c).beq n1 then
       let y := Fp2.sqrtGivenNorm gx1 c
       let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
