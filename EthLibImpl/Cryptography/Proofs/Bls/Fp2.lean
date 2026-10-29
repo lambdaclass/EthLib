@@ -1,5 +1,6 @@
 import EthLibImpl.Cryptography.Bls.Fp12
 import EthLibImpl.Cryptography.Proofs.Bls.Fp
+import EthLibImpl.Cryptography.Proofs.Bls.FpInv
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorPairing
 
 /-!
