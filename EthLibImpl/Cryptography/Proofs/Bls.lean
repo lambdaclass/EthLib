@@ -4,6 +4,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.EigenTorsion
 import EthLibImpl.Cryptography.Proofs.Bls.Equivalence
 import EthLibImpl.Cryptography.Proofs.Bls.FinalExp
 import EthLibImpl.Cryptography.Proofs.Bls.Fp
+import EthLibImpl.Cryptography.Proofs.Bls.FpInv
 import EthLibImpl.Cryptography.Proofs.Bls.Fp12
 import EthLibImpl.Cryptography.Proofs.Bls.Fp2
 import EthLibImpl.Cryptography.Proofs.Bls.Fp6

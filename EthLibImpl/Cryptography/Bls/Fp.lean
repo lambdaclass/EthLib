@@ -425,14 +425,169 @@ def powNibbles (a : Fp) (ds : ByteArray) : Fp := Id.run do
 /-- `a ^ e` for an arbitrary exponent. -/
 def powNat (a : Fp) (e : Nat) : Fp := powNibbles a (nibbles e)
 
-/-- Digits of `p - 2` (Fermat inversion). -/
-def invDigits : ByteArray := nibbles (modulus - 2)
-
 /-- Digits of `(p + 1) / 4` (square root, valid since `p ≡ 3 (mod 4)`). -/
 def sqrtDigits : ByteArray := nibbles ((modulus + 1) / 4)
 
-/-- Multiplicative inverse by Fermat; maps `0` to `0`, like the spec. -/
-def inverse (a : Fp) : Fp := powNibbles a invDigits
+/-! ## Inversion
+
+Kaliski's almost Montgomery inverse. For a canonical nonzero `a` whose words
+spell `A < p`, a binary extended GCD runs on the pair `(p, A)` with state
+`(u, v, r, s, k)`, starting from `(p, A, 0, 1, 0)`. Each step halves `u` or
+`v` (moving the power of two into `s` or `r` and into `k`), or subtracts the
+smaller of the two odd values from the larger (adding `s` to `r`, or `r` to
+`s`). It stops when `u = v = 1` and returns `(s, k)`.
+
+The invariant, over the integers, is
+`p = u·s + v·r`, `A·r + u·2^k ≡ 0` and `A·s ≡ v·2^k (mod p)`,
+`1 ≤ u ≤ p`, `1 ≤ v < p`, and `u·v·2^k ≤ p·A`. At the stop it gives
+`A·s ≡ 2^k (mod p)` with `s < p`.
+
+The last bound also gives `k < 762` (since `p·A < 2^762`), so the `UInt64`
+counter never wraps and `s`, `r` stay below `2^384`. Every iteration that
+does not stop adds at least one to `k`, so the loop stops within `762`
+iterations; the fuel `1000` is only there to make the recursion structural
+and is never exhausted.
+
+The result is `s · 2^(768 - k) mod p`: with `a = A·R⁻¹` in Montgomery form,
+`s ≡ 2^k · A⁻¹`, so `s · 2^(768 - k) · R⁻¹ ≡ A⁻¹ · R`, which is the
+Montgomery form of `a⁻¹`. The correction `· 2^j` splits `j` into three
+pieces of at most 256, each two Montgomery products (by `R²`, then by
+`2^j'`; `mulPow2`).
+
+The loop is **variable time**: its iteration count and branches depend on
+the input. That is acceptable here: the library only verifies signatures and
+aggregates public keys, so every value that is ever inverted is public; it
+never signs. (Fermat inversion, which it replaces, is constant time in the
+input but costs about three times as much.)
+
+The loop keeps every limb an unboxed `UInt64` argument: passing `Fp`
+objects around the loop allocates on every iteration. -/
+
+namespace Inv
+
+/-- Trailing zeros of a nonzero word, by binary search with selects. -/
+@[inline] def ctz (x : UInt64) : UInt64 :=
+  let z := (x &&& 0xFFFFFFFF) == 0
+  let n : UInt64 := if z then 32 else 0
+  let x := if z then x >>> 32 else x
+  let z := (x &&& 0xFFFF) == 0
+  let n := if z then n + 16 else n
+  let x := if z then x >>> 16 else x
+  let z := (x &&& 0xFF) == 0
+  let n := if z then n + 8 else n
+  let x := if z then x >>> 8 else x
+  let z := (x &&& 0xF) == 0
+  let n := if z then n + 4 else n
+  let x := if z then x >>> 4 else x
+  let z := (x &&& 0x3) == 0
+  let n := if z then n + 2 else n
+  let x := if z then x >>> 2 else x
+  if (x &&& 0x1) == 0 then n + 1 else n
+
+/-- A shift count `t ∈ [1, 63]` with `2^t ∣ d` for a nonzero even `d`: its
+trailing-zero count when the low word is nonzero, and `63` when it is zero
+(still an exact shift; the loop then simply takes the even branch again). -/
+@[inline] def tz (d : Fp) : UInt64 := if d.l0 == 0 then 63 else ctz d.l0
+
+/-- `a / 2^t` for `t ∈ [1, 63]`. -/
+@[inline] def shr (a : Fp) (t : UInt64) : Fp :=
+  let s := 64 - t
+  ⟨(a.l0 >>> t) ||| (a.l1 <<< s), (a.l1 >>> t) ||| (a.l2 <<< s), (a.l2 >>> t) ||| (a.l3 <<< s),
+   (a.l3 >>> t) ||| (a.l4 <<< s), (a.l4 >>> t) ||| (a.l5 <<< s), a.l5 >>> t⟩
+
+/-- `a · 2^t` for `t ∈ [1, 63]`, when that is below `2^384`. -/
+@[inline] def shl (a : Fp) (t : UInt64) : Fp :=
+  let s := 64 - t
+  ⟨a.l0 <<< t, (a.l1 <<< t) ||| (a.l0 >>> s), (a.l2 <<< t) ||| (a.l1 >>> s),
+   (a.l3 <<< t) ||| (a.l2 >>> s), (a.l4 <<< t) ||| (a.l3 >>> s), (a.l5 <<< t) ||| (a.l4 >>> s)⟩
+
+/-- `a + b` over six words, dropping the carry (callers keep the sum below
+`2^384`). -/
+@[inline] def add6 (a b : Fp) : Fp := addRaw a b
+
+/-- `a - b` over six words and the final borrow (`1` iff `a < b`). -/
+@[inline] def sub6 (a b : Fp) : Fp × UInt64 :=
+  let (d0, br) := sbb a.l0 b.l0 0
+  let (d1, br) := sbb a.l1 b.l1 br
+  let (d2, br) := sbb a.l2 b.l2 br
+  let (d3, br) := sbb a.l3 b.l3 br
+  let (d4, br) := sbb a.l4 b.l4 br
+  let (d5, br) := sbb a.l5 b.l5 br
+  (⟨d0, d1, d2, d3, d4, d5⟩, br)
+
+/-- The loop of the algorithm above, on `(u, v, r, s, k)` with the limbs of
+each vector as separate arguments. It returns `(s, k)` at the stop `u = v`.
+`fuel` only makes it structurally recursive. -/
+def go (fuel : Nat) (u0 u1 u2 u3 u4 u5 v0 v1 v2 v3 v4 v5
+    r0 r1 r2 r3 r4 r5 s0 s1 s2 s3 s4 s5 k : UInt64) : Fp × UInt64 :=
+  let s : Fp := ⟨s0, s1, s2, s3, s4, s5⟩
+  match fuel with
+  | 0 => (s, k)
+  | fuel + 1 =>
+    let u : Fp := ⟨u0, u1, u2, u3, u4, u5⟩
+    let v : Fp := ⟨v0, v1, v2, v3, v4, v5⟩
+    let r : Fp := ⟨r0, r1, r2, r3, r4, r5⟩
+    if u0 &&& 1 == 0 then
+      let t := tz u
+      let u' := shr u t
+      let s' := shl s t
+      go fuel u'.l0 u'.l1 u'.l2 u'.l3 u'.l4 u'.l5 v0 v1 v2 v3 v4 v5
+        r0 r1 r2 r3 r4 r5 s'.l0 s'.l1 s'.l2 s'.l3 s'.l4 s'.l5 (k + t)
+    else if v0 &&& 1 == 0 then
+      let t := tz v
+      let v' := shr v t
+      let r' := shl r t
+      go fuel u0 u1 u2 u3 u4 u5 v'.l0 v'.l1 v'.l2 v'.l3 v'.l4 v'.l5
+        r'.l0 r'.l1 r'.l2 r'.l3 r'.l4 r'.l5 s0 s1 s2 s3 s4 s5 (k + t)
+    else
+      let (d, br) := sub6 u v
+      if br == 0 then
+        if (d.l0 ||| d.l1 ||| d.l2 ||| d.l3 ||| d.l4 ||| d.l5) == 0 then (s, k)
+        else
+          let t := tz d
+          let u' := shr d t
+          let r' := add6 r s
+          let s' := shl s t
+          go fuel u'.l0 u'.l1 u'.l2 u'.l3 u'.l4 u'.l5 v0 v1 v2 v3 v4 v5
+            r'.l0 r'.l1 r'.l2 r'.l3 r'.l4 r'.l5 s'.l0 s'.l1 s'.l2 s'.l3 s'.l4 s'.l5 (k + t)
+      else
+        let (d, _) := sub6 v u
+        let t := tz d
+        let v' := shr d t
+        let r' := shl r t
+        let s' := add6 r s
+        go fuel u0 u1 u2 u3 u4 u5 v'.l0 v'.l1 v'.l2 v'.l3 v'.l4 v'.l5
+          r'.l0 r'.l1 r'.l2 r'.l3 r'.l4 r'.l5 s'.l0 s'.l1 s'.l2 s'.l3 s'.l4 s'.l5 (k + t)
+
+/-- The word vector of `2^j`, for `j < 384`. -/
+@[inline] def pow2 (j : UInt64) : Fp :=
+  let w := j >>> 6
+  let b : UInt64 := 1 <<< (j &&& 63)
+  ⟨if w == 0 then b else 0, if w == 1 then b else 0, if w == 2 then b else 0,
+   if w == 3 then b else 0, if w == 4 then b else 0, if w == 5 then b else 0⟩
+
+/-- `x · 2^j` for `j ≤ 256`: `mul (mul x R2) (pow2 j)` is `x · R · 2^j / R`
+(`mul` needs only its second argument canonical, and `2^256 < p`). -/
+@[inline] def mulPow2Small (x : Fp) (j : Nat) : Fp := mul (mul x R2) (pow2 j.toUInt64)
+
+/-- `x · 2^j mod p` for `j ≤ 768`, in three pieces of at most 256 (no
+recursion, so nothing to prove about termination here). -/
+def mulPow2 (x : Fp) (j : Nat) : Fp :=
+  let j1 := min j 256
+  let j2 := min (j - j1) 256
+  let j3 := j - j1 - j2
+  mulPow2Small (mulPow2Small (mulPow2Small x j1) j2) j3
+
+end Inv
+
+/-- Multiplicative inverse by Kaliski's almost Montgomery inverse (see
+above); maps `0` to `0`, like the spec. Variable time, which is fine for the
+public values this library inverts. -/
+def inverse (a : Fp) : Fp :=
+  if a.isZero then zero else
+  let (x, k) := Inv.go 1000 P0 P1 P2 P3 P4 P5 a.l0 a.l1 a.l2 a.l3 a.l4 a.l5
+    0 0 0 0 0 0 1 0 0 0 0 0 0
+  Inv.mulPow2 x (768 - k.toNat)
 
 instance (priority := high) : Div Fp := ⟨fun a b => a * b.inverse⟩
 
