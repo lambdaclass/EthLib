@@ -749,14 +749,27 @@ def compress (H : St) (buf : ByteArray) (off : Nat) : St :=
   let a := t1 + t2
   ⟨H.a + a, H.b + b, H.c + c, H.d + d, H.e + e, H.f + f, H.g + g, H.h + h⟩
 
-def padded (msg : ByteArray) : ByteArray := Id.run do
+/-- Sixty-four zero bytes, the source of the padding's zero run. -/
+def zeros64 : ByteArray := ByteArray.mk (Array.replicate 64 0)
+
+/-- `b` followed by `n ≤ 64` zero bytes: one bulk copy rather than `n` pushes. -/
+@[inline] def padZero (b : ByteArray) (n : Nat) : ByteArray :=
+  zeros64.copySlice 0 b b.size n false
+
+/-- `b` followed by the eight big-endian bytes of `bitLen`. -/
+@[inline] def pushLen (b : ByteArray) (bitLen : UInt64) : ByteArray :=
+  b |>.push (UInt8.ofNat (bitLen >>> 56).toNat) |>.push (UInt8.ofNat (bitLen >>> 48).toNat)
+    |>.push (UInt8.ofNat (bitLen >>> 40).toNat) |>.push (UInt8.ofNat (bitLen >>> 32).toNat)
+    |>.push (UInt8.ofNat (bitLen >>> 24).toNat) |>.push (UInt8.ofNat (bitLen >>> 16).toNat)
+    |>.push (UInt8.ofNat (bitLen >>> 8).toNat) |>.push (UInt8.ofNat bitLen.toNat)
+
+/-- SHA-256 padding. It extends `msg` in place when the caller owns it with enough
+capacity (`len + 72` bytes always suffice). -/
+def padded (msg : ByteArray) : ByteArray :=
   let len := msg.size
   let bitLen : UInt64 := UInt64.ofNat (len * 8)
   let padZeros := (56 + 64 - ((len + 1) % 64)) % 64
-  let mut buf := msg.push 0x80
-  for _ in [:padZeros] do buf := buf.push 0
-  for i in [:8] do buf := buf.push (UInt8.ofNat (bitLen >>> UInt64.ofNat ((7 - i) * 8)).toNat)
-  return buf
+  pushLen (padZero (msg.push 0x80) padZeros) bitLen
 
 def hashGo (buf : ByteArray) (H : St) (off : Nat) (fuel : Nat) : St :=
   match fuel with

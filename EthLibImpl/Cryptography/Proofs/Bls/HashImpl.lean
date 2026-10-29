@@ -46,7 +46,7 @@ theorem sha256_size (m : ByteArray) : (Bls.Sha256.hash m).size = 32 := by
   show (Array.replicate 32 (0:UInt8)).size = 32
   simp
 
-open private sha256OutputSize from EthLib.Cryptography.Bls.HashToCurve
+open private sha256OutputSize i2osp strxor from EthLib.Cryptography.Bls.HashToCurve
 
 theorem forIn_push_list {ε : Type} (g : Nat → Array ByteArray → ByteArray) (l : List Nat)
     (init : Array ByteArray) :
@@ -161,11 +161,73 @@ theorem forIn_range_sim_idx {ε β β' : Type} (inv : Nat → β → β' → Pro
 
 
 
+theorem i2osp_data (n len : Nat) : (i2osp n len).data =
+    Array.ofFn (n := len) fun i => UInt8.ofNat ((n >>> ((len - 1 - i.val) * 8)) &&& 0xff) := rfl
+
+theorem ofFn1 {α} (f : Fin 1 → α) : Array.ofFn f = #[f 0] := by
+  apply Array.ext
+  · simp
+  · intro k h1 h2
+    match k, h1 with
+    | 0, _ => simp [Array.getElem_ofFn]
+
+theorem ofFn2 {α} (f : Fin 2 → α) : Array.ofFn f = #[f 0, f 1] := by
+  apply Array.ext
+  · simp
+  · intro k h1 h2
+    match k, h1 with
+    | 0, _ => simp [Array.getElem_ofFn]
+    | 1, _ => simp [Array.getElem_ofFn]
+
+theorem append_i2osp1 (X : ByteArray) (n : Nat) :
+    X ++ i2osp n 1 = X.push (UInt8.ofNat (n &&& 0xff)) := by
+  apply ByteArray.ext
+  rw [ByteArray.data_append, i2osp_data, ofFn1]
+  simp [ByteArray.push]
+
+theorem append_i2osp2 (X : ByteArray) (n : Nat) :
+    X ++ i2osp n 2 = (X.push (UInt8.ofNat ((n >>> 8) &&& 0xff))).push (UInt8.ofNat (n &&& 0xff)) := by
+  apply ByteArray.ext
+  rw [ByteArray.data_append, i2osp_data, ofFn2]
+  simp only [ByteArray.push]
+  apply Array.toList_inj.mp
+  simp
+
+theorem ofFn_succ_cons {α} (n : Nat) (g : Fin (n + 1) → α) :
+    Array.ofFn g = #[g 0] ++ Array.ofFn (fun i : Fin n => g i.succ) := by
+  apply Array.ext
+  · simp; omega
+  · intro k h1 h2
+    simp only [Array.getElem_ofFn, Array.getElem_append]
+    match k with
+    | 0 => simp
+    | k + 1 => simp
+
+theorem xorGo_data (a b : ByteArray) (f : Nat) : ∀ (j : Nat) (acc : ByteArray),
+    (FastXmd.xorGo a b j f acc).data =
+      acc.data ++ Array.ofFn (n := f) (fun i => a[j + i.val]! ^^^ b[j + i.val]!) := by
+  induction f with
+  | zero => intro j acc; simp [FastXmd.xorGo]
+  | succ f ih =>
+    intro j acc
+    rw [FastXmd.xorGo, ih, ofFn_succ_cons]
+    simp [ByteArray.push, Nat.add_assoc, Nat.add_comm 1]
+
+theorem ewc_eq (c : Nat) : ByteArray.emptyWithCapacity c = ByteArray.empty := rfl
+
+theorem xorGo_strxor (a b : ByteArray) :
+    FastXmd.xorGo a b 0 a.size ByteArray.empty = strxor a b := by
+  apply ByteArray.ext
+  rw [xorGo_data]
+  show (#[] : Array UInt8) ++ _ = _
+  simp [strxor]
+
 /-- The implementation's `expand_message_xmd` (over `Sha256Fast`) computes the spec's. -/
 theorem expandMessageXmdFast_eq (msg dst : ByteArray) (n : Nat) :
     FastXmd.expandMessageXmdFast msg dst n = Bls.HashToCurve.expandMessageXmd msg dst n := by
   unfold FastXmd.expandMessageXmdFast Bls.HashToCurve.expandMessageXmd
-  simp only [Sha256Fast.hash_eq]
+  simp only [Sha256Fast.hash_eq, append_i2osp1, append_i2osp2, xorGo_strxor, ewc_eq,
+    ByteArray.empty_append, Nat.zero_and]
   rfl
 
 end EthLibImpl.Cryptography.Bls.HashToCurve
@@ -252,12 +314,35 @@ theorem sgn0Fp2_spec {u : Fp2} (hu : u.Canonical) :
   rw [Fp.parity_eq, Fp.parity_eq, Fp2.fp_isZero_eq hu.1]
   rfl
 
+/-- `mulNatWLean` returns `mulNatW`'s triple, point for point. -/
+theorem mulNatWLean_eq (p : G2) (k : UInt64) : HashToCurve.mulNatWLean p k = G2.mulNatW p k := by
+  induction hn : k.toNat using Nat.strong_induction_on generalizing p k with
+  | _ n ih =>
+    rw [HashToCurve.mulNatWLean, G2.mulNatW]
+    have hk0 : (k = 0) ↔ k.toNat = 0 := by
+      rw [← UInt64.toNat_inj]; simp
+    have hdiv : (k / 2).toNat = k.toNat / 2 := by rw [UInt64.toNat_div]; rfl
+    by_cases hk : k = 0
+    · rw [if_pos hk, if_pos hk]
+    rw [if_neg hk, if_neg hk]
+    by_cases hk1 : k = 1
+    · rw [if_pos hk1]
+      subst hk1
+      rw [G2.mulNatW]
+      simp
+    · rw [if_neg hk1]
+      have hk' : ¬ k.toNat = 0 := fun h => hk (hk0.mpr h)
+      have := ih (n / 2) (by omega) (G2.double p) (k / 2) (by rw [hdiv, hn])
+      rw [this]
+
 theorem mulNegX_spec {P : G2} (hP : G2.Canonical P) :
     (HashToCurve.mulNegX P).Canonical ∧ G2.toSpec (HashToCurve.mulNegX P) = mulNegX (G2.toSpec P) := by
+  have e : HashToCurve.mulNegX P = G2.neg (G2.mulNatW P G2.absXWord) := by
+    unfold HashToCurve.mulNegX; rw [mulNatWLean_eq]
   obtain ⟨h1, h2⟩ := G2.mulNatW_spec' hP G2.absXWord
   obtain ⟨h3, h4⟩ := G2.neg_spec h1
+  rw [e]
   refine ⟨h3, ?_⟩
-  show G2.toSpec (G2.neg (G2.mulNatW P G2.absXWord)) = _
   rw [h4, h2, G2.absXWord_toNat]
   rfl
 
