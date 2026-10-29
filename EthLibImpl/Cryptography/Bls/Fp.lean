@@ -425,8 +425,81 @@ def powNibbles (a : Fp) (ds : ByteArray) : Fp := Id.run do
 /-- `a ^ e` for an arbitrary exponent. -/
 def powNat (a : Fp) (e : Nat) : Fp := powNibbles a (nibbles e)
 
-/-- Digits of `(p + 1) / 4` (square root, valid since `p ≡ 3 (mod 4)`). -/
-def sqrtDigits : ByteArray := nibbles ((modulus + 1) / 4)
+/-! ## Sliding-window exponentiation for fixed exponents
+
+A fixed exponent is compiled once into a window program: an initial odd
+digit `d0` (`a^d0` is the starting accumulator, so nothing is squared from
+`one`) and steps `(n, d)` meaning "square `n` times, then multiply by
+`a^d`" (`d = 0`: no multiplication, a final run of squarings). Digits are odd
+and below 32, so the table holds only `a, a³, …, a³¹`. -/
+
+/-- A window program: the initial digit and the remaining steps. -/
+abbrev WinProg := Nat × Array (Nat × Nat)
+
+/-- Shrink a window `(v, w)` (`w` bits, value `v`) until it is odd: its
+trailing zero bits go back to the pending run of squarings. -/
+def winTrim : Nat → Nat → Nat → Nat × Nat
+  | 0, v, w => (v, w)
+  | f + 1, v, w => if w > 1 && v % 2 == 0 then winTrim f (v / 2) (w - 1) else (v, w)
+
+/-- Left-to-right scan of the bits of `e` below position `k` (structural on
+`fuel`, one bit at least per round): `z` zero bits are pending, `acc` holds
+the steps so far. -/
+def winGo (e : Nat) : Nat → Nat → Nat → Array (Nat × Nat) → Array (Nat × Nat)
+  | 0, _, z, acc => if z == 0 then acc else acc.push (z, 0)
+  | fuel + 1, k, z, acc =>
+    if k == 0 then (if z == 0 then acc else acc.push (z, 0))
+    else if (e >>> (k - 1)) % 2 == 0 then winGo e fuel (k - 1) (z + 1) acc
+    else
+      let w := min 5 k
+      let (v, w) := winTrim 5 ((e >>> (k - w)) % 2 ^ w) w
+      winGo e fuel (k - w) 0 (acc.push (z + w, v))
+
+/-- The window program of `e` (`(0, #[])` for `e = 0`). -/
+def windows (e : Nat) : WinProg :=
+  let steps := winGo e (e.log2 + 1) (e.log2 + 1) 0 #[]
+  if h : steps.size = 0 then (0, #[]) else (steps[0].2, steps.extract 1 steps.size)
+
+/-- `#[a, a³, …, a³¹]`, built by one squaring and fifteen products. -/
+def oddPush (a2 : Fp) : Nat → Fp → Array Fp → Array Fp
+  | 0, _, t => t
+  | k + 1, cur, t =>
+    let nx := mul cur a2
+    oddPush a2 k nx (t.push nx)
+
+def oddTable (a : Fp) : Array Fp := oddPush (sqr a) 15 a #[a]
+
+/-- `n` squarings, in place on an exclusive accumulator; the common short
+runs are unrolled so the products fuse into straight-line code. -/
+def sqrN (acc : Fp) : Nat → Fp
+  | 0 => acc
+  | 1 => mulI acc acc
+  | 2 => let x := mulI acc acc; mulI x x
+  | 3 => let x := mulI acc acc; let x := mulI x x; mulI x x
+  | 4 => let x := mulI acc acc; let x := mulI x x; let x := mulI x x; mulI x x
+  | 5 =>
+    let x := mulI acc acc; let x := mulI x x; let x := mulI x x; let x := mulI x x; mulI x x
+  | n + 6 =>
+    let x := mulI acc acc; let x := mulI x x; let x := mulI x x; let x := mulI x x
+    let x := mulI x x; Nat.repeat (fun x => mulI x x) (n + 1) x
+
+/-- One program step: `n` squarings of the exclusive accumulator, then a
+table product (the accumulator is the second argument, whose memory `mul`
+reuses) unless `d = 0`. -/
+@[inline] def winStep (tbl : Array Fp) (acc : Fp) (st : Nat × Nat) : Fp :=
+  let r := sqrN acc st.1
+  if st.2 != 0 then mul tbl[st.2 >>> 1]! r else r
+
+/-- `a ^ e` for the `e` that `prog = windows e` was built from. -/
+def powWin (a : Fp) (prog : WinProg) : Fp :=
+  let tbl := oddTable a
+  prog.2.foldl (winStep tbl) tbl[prog.1 >>> 1]!
+
+/-- Window program of `(p + 1) / 4` (square root, valid since `p ≡ 3 (mod 4)`). -/
+def sqrtWin : WinProg := windows ((modulus + 1) / 4)
+
+/-- Window program of `(p - 3) / 4` (`Fp2` square root). -/
+def invSqrtWin : WinProg := windows ((modulus - 3) / 4)
 
 /-! ## Inversion
 
@@ -593,7 +666,7 @@ instance (priority := high) : Div Fp := ⟨fun a b => a * b.inverse⟩
 
 /-- Spec `Fp.sqrt`: the candidate `a^((p+1)/4)` if it squares back to `a`. -/
 def sqrt (a : Fp) : Except BlsError Fp :=
-  let cand := powNibbles a sqrtDigits
+  let cand := powWin a sqrtWin
   if (cand * cand).beq a then .ok cand else .error .notASquare
 
 /-! ## Byte encoding -/
