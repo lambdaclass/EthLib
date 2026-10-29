@@ -2,6 +2,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.Fp12
 import EthLibImpl.Cryptography.Proofs.Bls.G1
 import EthLibImpl.Cryptography.Proofs.Bls.G2Defs
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorPairing
+import EthLibImpl.Cryptography.Proofs.Bls.Decompress
 import EthLibImpl.Cryptography.Bls.Pairing
 
 /-!
@@ -388,34 +389,67 @@ theorem word_bit (k : UInt64) (n : Nat) (hn : n < 64) :
   rw [G1.bit_spec k n hn, Nat.testBit, Nat.and_comm, bne_iff_ne, ne_eq, Nat.and_one_is_mod]
   omega
 
-theorem cycPowMsb_spec {g : Fp12} (hg : g.Canonical) (k : UInt64) :
-    ∀ (n : Nat), n ≤ 64 → ∀ {acc : Fp12}, acc.Canonical →
-      (cycPowMsb g k n acc).Canonical ∧
-        (cycPowMsb g k n acc).toSpec = Mirror.cycPowMsb g.toSpec k.toNat n acc.toSpec
-  | 0, _, acc, hacc => by
-    rw [cycPowMsb, Mirror.cycPowMsb]
-    exact ⟨hacc, rfl⟩
-  | n + 1, hn, acc, hacc => by
-    have hc := Fp12.cycSqr_canonical hacc
-    have hs := Fp12.toSpec_cycSqr hacc
-    have hb := word_bit k n (by omega)
-    rw [cycPowMsb, Mirror.cycPowMsb, ← hs]
-    by_cases hbit : (k >>> n.toUInt64 &&& 1 != 0) = true
-    · rw [if_pos hbit, if_pos (hb.1 hbit)]
-      have hm := Fp12.mul_canonical hc hg
-      have e := Fp12.toSpec_mul hc hg
-      obtain ⟨c, e'⟩ := cycPowMsb_spec hg k n (by omega) hm
-      rw [e] at e'
-      exact ⟨c, e'⟩
-    · rw [if_neg hbit, if_neg (fun h => hbit (hb.2 h))]
-      exact cycPowMsb_spec hg k n (by omega) hc
+/-- `cycPowAbsX` with `decompress6` abstracted, so that its unfolding lemma does not make
+the kernel evaluate the (large) decompression when it reduces the `match` on its result. -/
+def cycPowG : (Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 →
+    Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12) → Fp12 → Fp12 :=
+  abstractStep% cycPowAbsX, decompress6
+
+theorem cycPowAbsX_eq_G : cycPowAbsX = cycPowG decompress6 := by
+  delta cycPowAbsX cycPowG
+  rfl
+
+/-- The statement of `decompress6_spec`, for an arbitrary decompression `D`. -/
+def DecompressSpec (D : Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 →
+    Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12) : Prop :=
+  ∀ {x0 x1 x2 x3 x4 x5 : Fp12.C4}, x0.Canonical → x1.Canonical → x2.Canonical →
+    x3.Canonical → x4.Canonical → x5.Canonical →
+    let r := D x0 x1 x2 x3 x4 x5
+    r.1.Canonical ∧ r.2.1.Canonical ∧ r.2.2.1.Canonical ∧ r.2.2.2.1.Canonical ∧
+      r.2.2.2.2.1.Canonical ∧ r.2.2.2.2.2.Canonical ∧
+      (r.1.toSpec, r.2.1.toSpec, r.2.2.1.toSpec, r.2.2.2.1.toSpec, r.2.2.2.2.1.toSpec,
+        r.2.2.2.2.2.toSpec) =
+        Mirror.decompress6 x0.toSpec x1.toSpec x2.toSpec x3.toSpec x4.toSpec x5.toSpec
+
+theorem cycPowG_spec {D : Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 →
+    Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12} (hD : DecompressSpec D) {g : Fp12}
+    (hg : g.Canonical) :
+    (cycPowG D g).Canonical ∧ (cycPowG D g).toSpec = Mirror.cycPowAbsX g.toSpec := by
+  obtain ⟨k0, kv0⟩ := Fp12.compress_spec hg
+  unfold cycPowG Mirror.cycPowAbsX
+  simp only []
+  obtain ⟨k16, v16⟩ := csqrN_spec k0 16
+  generalize csqrN (Fp12.compress g) 16 = C16 at k16 v16 ⊢
+  rw [← kv0, ← v16]
+  obtain ⟨k48, v48⟩ := csqrN_spec k16 32
+  generalize csqrN C16 32 = C48 at k48 v48 ⊢
+  rw [← v48]
+  obtain ⟨k57, v57⟩ := csqrN_spec k48 9
+  generalize csqrN C48 9 = C57 at k57 v57 ⊢
+  rw [← v57]
+  obtain ⟨k60, v60⟩ := csqrN_spec k57 3
+  generalize csqrN C57 3 = C60 at k60 v60 ⊢
+  rw [← v60]
+  obtain ⟨k62, v62⟩ := csqrN_spec k60 2
+  generalize csqrN C60 2 = C62 at k62 v62 ⊢
+  rw [← v62]
+  have k63 := Fp12.csqr_canonical k62
+  have v63 := Fp12.toSpec_csqr k62
+  generalize Fp12.csqr C62 = C63 at k63 v63 ⊢
+  rw [← v63]
+  obtain ⟨d0, d1, d2, d3, d4, d5, dv⟩ := hD k16 k48 k57 k60 k62 k63
+  generalize D C16 C48 C57 C60 C62 C63 = R at d0 d1 d2 d3 d4 d5 dv ⊢
+  rw [← dv]
+  obtain ⟨D0, D1, D2, D3, D4, D5⟩ := R
+  simp only [] at d0 d1 d2 d3 d4 d5 ⊢
+  refine ⟨?_, ?_⟩ <;>
+  simp (config := {maxDischargeDepth := 40}) only [Fp12.toSpec_hMul, Fp12.canonical_hMul, d0, d1, d2, d3, d4, d5]
 
 theorem cycPowAbsX_spec {g : Fp12} (hg : g.Canonical) :
     (cycPowAbsX g).Canonical ∧
       (cycPowAbsX g).toSpec = Mirror.cycPowAbsX g.toSpec := by
-  have := cycPowMsb_spec hg blsXWord 63 (by omega) hg
-  rw [blsXWord_toNat] at this
-  exact this
+  rw [cycPowAbsX_eq_G]
+  exact cycPowG_spec (fun {_ _ _ _ _ _} h0 h1 h2 h3 h4 h5 => decompress6_spec h0 h1 h2 h3 h4 h5) hg
 
 theorem cycPowAbsX_canonical {g : Fp12} (hg : g.Canonical) : (cycPowAbsX g).Canonical :=
   (cycPowAbsX_spec hg).1

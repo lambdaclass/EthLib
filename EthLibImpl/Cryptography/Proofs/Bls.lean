@@ -1,5 +1,6 @@
 import EthLibImpl.Cryptography.Proofs.Bls.CompressG1
 import EthLibImpl.Cryptography.Proofs.Bls.CompressG2
+import EthLibImpl.Cryptography.Proofs.Bls.Decompress
 import EthLibImpl.Cryptography.Proofs.Bls.EigenTorsion
 import EthLibImpl.Cryptography.Proofs.Bls.Equivalence
 import EthLibImpl.Cryptography.Proofs.Bls.FinalExp
