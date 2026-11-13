@@ -20,10 +20,6 @@ own `Fp2` with the scoped field structure of `Proofs.Bls.SpecFp2`.
   it denotes `0`.
 -/
 
--- Core's grind `HPow (Fin n) Nat` instances would shadow Mathlib's monoid power.
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLib.Cryptography.Bls.G2
 
 open scoped EthLib.Cryptography.Bls.Fp2

@@ -30,11 +30,6 @@ Field theory for the specification's cubic extension
   `one_def`, `inverse_eq_inv`, `Fp6.ext_iff`.
 -/
 
--- Core's grind `HPow (Fin n) Nat` instances would shadow Mathlib's monoid
--- power on `Fp`; see `Proofs.Bls.FrZMod`.
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 open scoped EthLib.Cryptography.Bls.Fp
 open scoped EthLib.Cryptography.Bls.Fp2
 

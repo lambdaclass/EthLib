@@ -24,9 +24,6 @@ group structure:
   `Mirror.G2.mulMsb`, evaluated by the kernel.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLibImpl.Cryptography.Bls.Mirror.G2
 
 open EthLib.Cryptography.Bls

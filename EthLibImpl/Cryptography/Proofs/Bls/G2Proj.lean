@@ -19,9 +19,6 @@ way to the pairing:
   `Embedded.ofG2`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLib.Cryptography.Bls.G2
 
 open scoped EthLib.Cryptography.Bls.Fp2

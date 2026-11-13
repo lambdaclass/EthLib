@@ -21,8 +21,6 @@ implementation's own matcher and panic term, so that `simpleSwuWith = swuG ...` 
 and the proofs then run on the parametrised version.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
 set_option linter.unusedSimpArgs false
 
 namespace EthLibImpl.Cryptography.Bls.HashToCurve

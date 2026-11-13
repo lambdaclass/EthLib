@@ -31,11 +31,6 @@ hard part with compressed cyclotomic squarings and ladders in `|x|`.
   `E`) and `Fp12.w_pow_three_mul_finalExpExponent` (`w^(3E) = 1`).
 -/
 
--- Core's grind `HPow (Fin n) Nat` instances would shadow Mathlib's monoid
--- power on `Fp`; see `Proofs.Bls.FrZMod`.
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 open scoped EthLib.Cryptography.Bls.Fp
 open scoped EthLib.Cryptography.Bls.Fp2
 open scoped EthLib.Cryptography.Bls.Fp6

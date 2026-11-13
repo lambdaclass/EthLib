@@ -12,9 +12,6 @@ import EthLib.Cryptography.Proofs.Bls.G1Group
 (namespace `G1` of `Bls/Compress.lean`) against the spec's.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 set_option linter.unusedSimpArgs false
 
 namespace EthLib.Cryptography.Bls

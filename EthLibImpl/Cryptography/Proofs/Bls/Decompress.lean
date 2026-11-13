@@ -16,9 +16,6 @@ implementation shares one inversion among the six (Montgomery's trick): with
 denominator selects `0`, which is the spec's `n·inverse 0`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 set_option linter.unusedSimpArgs false
 
 namespace EthLibImpl.Cryptography.Bls

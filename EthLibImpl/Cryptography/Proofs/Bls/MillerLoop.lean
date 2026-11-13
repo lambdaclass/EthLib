@@ -46,11 +46,6 @@ final exponentiation erases it.
   finish.
 -/
 
--- Core's grind `HPow (Fin n) Nat` instances would shadow Mathlib's monoid
--- power on `Fp`; see `Proofs.Bls.FrZMod`.
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 open scoped EthLib.Cryptography.Bls.Fp
 open scoped EthLib.Cryptography.Bls.Fp2
 open scoped EthLib.Cryptography.Bls.Fp6

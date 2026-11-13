@@ -18,9 +18,6 @@ The file also covers the `Fp2` pieces the tower proofs skip: `sqrt` (against the
 `sqrtAlt`), `batchInverse2`, `batchInverse4` (against the mirror's) and `Fp2.signBit`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 set_option linter.unusedSimpArgs false
 
 namespace EthLibImpl.Cryptography.Bls.G2

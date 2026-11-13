@@ -15,9 +15,6 @@ lemma (`toSpec (op x y) = specOp (toSpec x) (toSpec y)`), for both the
 componentwise. `sqrt` and the batched inverses are not covered here.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLibImpl.Cryptography.Bls.Fp2
 
 open EthLib.Cryptography.Bls.Fp (toZMod toZMod_add toZMod_sub toZMod_neg toZMod_mul toZMod_zero
@@ -357,7 +354,7 @@ theorem fp_isZero_eq {a : Fp} (ha : a.Canonical) : a.isZero = a.val.isZero := by
 
 theorem fp_beq_eq {a b : Fp} (ha : a.Canonical) (hb : b.Canonical) :
     a.beq b = a.val.beq b.val := by
-  rw [Bool.eq_iff_iff, Fp.beq_iff ha hb, EthLib.Cryptography.Bls.Fp.beq_eq_true_iff]
+  rw [Bool.eq_iff_iff, Fp.beq_iff ha hb, EthLib.Cryptography.Bls.Fp.beq_iff]
 
 theorem isZero_eq {x : Fp2} (hx : Canonical x) :
     (toSpec x).isZero = x.isZero := by
@@ -373,8 +370,8 @@ theorem beq_iff {x y : Fp2} (hx : Canonical x) (hy : Canonical y) :
     x.beq y = true ↔ toSpec x = toSpec y := by
   rw [← beq_eq hx hy]
   show (x.c0.val.beq y.c0.val && x.c1.val.beq y.c1.val) = true ↔ _
-  rw [Bool.and_eq_true, EthLib.Cryptography.Bls.Fp.beq_eq_true_iff,
-    EthLib.Cryptography.Bls.Fp.beq_eq_true_iff]
+  rw [Bool.and_eq_true, EthLib.Cryptography.Bls.Fp.beq_iff,
+    EthLib.Cryptography.Bls.Fp.beq_iff]
   constructor
   · rintro ⟨h0, h1⟩; exact spec_ext h0 h1
   · intro h; exact ⟨congrArg EthLib.Cryptography.Bls.Fp2.c0 h, congrArg EthLib.Cryptography.Bls.Fp2.c1 h⟩

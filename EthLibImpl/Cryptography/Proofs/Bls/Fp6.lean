@@ -13,9 +13,6 @@ the spec's `Fp2` (`SpecFp2`), where `mulByOnePlusI` is multiplication by
 `Mirror.xi`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLib.Cryptography.Bls.Fp2
 
 open scoped EthLib.Cryptography.Bls.Fp2

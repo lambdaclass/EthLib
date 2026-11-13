@@ -18,9 +18,6 @@ For the twist `y² = x³ + b'` over the spec's `Fp2`, `ψ(x, y) = (c₁·x̄, c�
 * `valid_psiJ`, `toPoint_psiJ`: `ψ` on spec Jacobian triples (`Mirror.G2.psiJ`).
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLibImpl.Cryptography.Bls.Mirror.G2
 
 open EthLib.Cryptography.Bls

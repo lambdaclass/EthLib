@@ -14,9 +14,6 @@ other root than the spec's, and both then fix the sign with `Fp2.signBit`, so th
 `Mirror.G2.inSubgroup` (equal to the spec's on valid points by `Mirror.G2.inSubgroup_eq`, in `G2Subgroup`).
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 set_option linter.unusedSimpArgs false
 
 namespace EthLib.Cryptography.Bls

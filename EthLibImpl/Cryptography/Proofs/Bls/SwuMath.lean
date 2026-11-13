@@ -14,9 +14,6 @@ candidate of `gx1`. This file proves the facts that make that sound, over the sp
 * `sqrtGivenNorm_sq`: `sqrtGivenNorm a s` squares to `a` for `a.c1 ≠ 0` and `s² = N(a)`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 open private alt_branch from EthLibImpl.Cryptography.Proofs.Bls.SpecFp2
 
 namespace EthLibImpl.Cryptography.Bls.Mirror.HashToCurve

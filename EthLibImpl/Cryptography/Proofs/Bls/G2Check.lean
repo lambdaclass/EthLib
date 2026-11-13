@@ -16,9 +16,6 @@ theorem `inSubgroup_eq` is in `G2Subgroup`).
 * `valid_of_uncompress`: a successful `G2.uncompress` yields a curve point.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLibImpl.Cryptography.Bls.Mirror.G2
 
 open EthLib.Cryptography.Bls

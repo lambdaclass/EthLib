@@ -10,7 +10,8 @@ import EthLib.Cryptography.Proofs.IdLoops
 `EthLibImpl.Cryptography.Bls.Fp` stores a field element as six `UInt64`
 words holding `a · R mod p` with `R = 2^384`. This file proves that every
 operation of that module computes the spec field
-`EthLib.Cryptography.Bls.Fp` (`Fin p`, definitionally `ZMod p`).
+`EthLib.Cryptography.Bls.Fp` (itself twelve 32-bit Montgomery limbs, which
+proofs reach only through its map to `ZMod p`, never by unfolding).
 
 ## The decoding map
 
@@ -25,19 +26,16 @@ a homomorphism for it: `val_mulI`, `val_addI`, `val_subI`, `val_negI`,
 
 ## Doing algebra downstream
 
-The spec field's `+`, `*`, `-`, `0`, `1` are core's `Fin` instances, on
-which Mathlib's `ring` does not run (and `map_sub`/`map_neg` do not
-match them). Ring reasoning goes through
-`EthLib.Cryptography.Bls.Fp.toZMod` (a ring isomorphism that is the
-identity): `apply toZMod.injective`, push `toZMod` through with the `rfl`
-lemmas `toZMod_add`, `toZMod_sub`, `toZMod_neg`, `toZMod_mul`,
-`toZMod_zero`, `toZMod_one`, `toZMod_pow`, `toZMod_ofNat` (namespace
-`EthLib.Cryptography.Bls.Fp`, first section below), and finish with
-`ring` / `linear_combination` over `ZMod p`. On the implementation side
-`toZ_val` (`toZMod a.val = a.raw * toZMod rInv`) is the entry point.
-Powers `x ^ n` on the spec field are Mathlib's monoid power on the scoped
-field instance (`powNat_eq_monoid_pow`); this file removes core's grind
-`HPow (Fin n) Nat` instances, as FrZMod does.
+Ring reasoning goes through the spec's ring isomorphism
+`EthLib.Cryptography.Bls.Fp.toZMod : Fp ≃+* ZMod p`: `apply toZMod.injective`,
+push `toZMod` through with the spec's lemmas `toZMod_add`, `toZMod_sub`,
+`toZMod_neg`, `toZMod_mul`, `toZMod_zero`, `toZMod_one`, `toZMod_ofNat` and
+`SpecFp.toZMod_pow` (first section below), and finish with `ring` /
+`linear_combination` over `ZMod p`. On the implementation side `toZ_val`
+(`toZMod a.val = a.raw * toZMod rInv`) is the entry point. Powers `x ^ n` on
+the spec field are Mathlib's monoid power on the spec's scoped field instance
+(`Fp.powNat_eq_pow`). A concrete spec value is checked in `ZMod p` after
+`toZMod_ofNat`, where the kernel computes on natural numbers.
 
 ## Coverage
 
@@ -60,63 +58,35 @@ accumulator below `2p` after every row, and one conditional subtraction
 (`reduceOnce`) then lands in `[0, p)`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
+namespace EthLibImpl.Cryptography.Bls.SpecFp
 
-namespace EthLib.Cryptography.Bls.Fp
+/-! ## The spec field through `ZMod p`
 
-/-! ## `toZMod` against the spec's core `Fin` operations
+The spec's `Fp.toZMod` lemmas cover the ring operations and `ofNat`; these
+add the two that the implementation's proofs also use. -/
 
-The spec field's `+`, `*`, `-`, `0`, `1` are core's `Fin` instances, which
-Mathlib's `ring` does not see as ring operations. `toZMod` is the identity
-ring isomorphism to `ZMod p`, and these `rfl` lemmas push it through the
-`Fin` operations so that ring reasoning can happen in `ZMod p`. -/
+open scoped EthLib.Cryptography.Bls.Fp
 
-theorem toZMod_add (x y : Fp) : toZMod (x + y) = toZMod x + toZMod y := rfl
+local notation "S" => EthLib.Cryptography.Bls.Fp
 
-theorem toZMod_sub (x y : Fp) : toZMod (x - y) = toZMod x - toZMod y := rfl
+/-- Monoid power (on the spec's scoped field instance) commutes with `toZMod`. -/
+theorem toZMod_pow (x : S) (n : Nat) :
+    EthLib.Cryptography.Bls.Fp.toZMod (x ^ n) = EthLib.Cryptography.Bls.Fp.toZMod x ^ n :=
+  map_pow EthLib.Cryptography.Bls.Fp.toZMod x n
 
-theorem toZMod_neg (x : Fp) : toZMod (-x) = -toZMod x := rfl
+/-- `ZMod.val` after `toZMod` is the spec's `val`. -/
+theorem val_toZMod (x : S) : (EthLib.Cryptography.Bls.Fp.toZMod x).val = x.val :=
+  (EthLib.Cryptography.Bls.Fp.val_eq x).symm
 
-theorem toZMod_mul (x y : Fp) : toZMod (x * y) = toZMod x * toZMod y := rfl
-
-theorem toZMod_zero : toZMod 0 = 0 := rfl
-
-theorem toZMod_one : toZMod 1 = 1 := rfl
-
-/-- Monoid power (on the scoped field instance) commutes with `toZMod`. -/
-theorem toZMod_pow (x : Fp) (n : Nat) : toZMod (x ^ n) = toZMod x ^ n := rfl
-
-theorem toZMod_ofNat (n : Nat) : toZMod (Fp.ofNat n) = (n : ZMod modulus) := by
-  rw [ofNat_eq_natCast]; rfl
-
-theorem toZMod_mk (n : Nat) (h : n < modulus) : toZMod (⟨n, h⟩ : Fp) = (n : ZMod modulus) := by
-  apply ZMod.val_injective
-  show (⟨n, h⟩ : Fp).val = _
-  rw [ZMod.val_natCast_of_lt h]
-
-/-- `ZMod.val` after `toZMod` is `Fin.val`. Rewrite with this rather than
-relying on the defeq: the kernel can recurse deeply unfolding a concrete
-argument. -/
-theorem val_toZMod (x : Fp) : (toZMod x).val = x.val := rfl
-
-/-- The spec's `powNat` is Mathlib's monoid power on the scoped field
-instance (FpZMod's `powNat_eq_pow` states it with core's grind
-`HPow (Fin n) Nat` instance instead). -/
-theorem powNat_eq_monoid_pow (x : Fp) (n : Nat) : Fp.powNat x n = x ^ n :=
-  powNat_eq_zmod_pow x n
-
-theorem beq_eq_true_iff (x y : Fp) : Fp.beq x y = true ↔ x = y := by
-  simp [Fp.beq, Fin.ext_iff]
-
-end EthLib.Cryptography.Bls.Fp
+end EthLibImpl.Cryptography.Bls.SpecFp
 
 namespace EthLibImpl.Cryptography.Bls.Fp
 
 open Limbs
 open scoped EthLib.Cryptography.Bls.Fp
 open EthLib.Cryptography.Bls.Fp (toZMod toZMod_add toZMod_sub toZMod_neg toZMod_mul toZMod_zero
-  toZMod_one toZMod_pow toZMod_ofNat toZMod_mk val_toZMod powNat_eq_monoid_pow beq_eq_true_iff)
+  toZMod_one toZMod_ofNat)
+open EthLibImpl.Cryptography.Bls.SpecFp (toZMod_pow val_toZMod)
 
 local notation "S" => EthLib.Cryptography.Bls.Fp
 local notation "Z" => ZMod EthLib.Cryptography.Bls.Fp.modulus
@@ -167,10 +137,12 @@ theorem modulus_lt_381 : modulus < 2 ^ 381 := by decide
 
 /-! ## The decoding map `val` -/
 
+/-- `R⁻¹ = (2^384)⁻¹ mod p`, as a natural number. -/
+def rInvNat : Nat :=
+  0x14fec701e8fb0ce9ed5e64273c4f538b1797ab1458a88de9343ea97914956dc87fe11274d898fafbf4d38259380b4820
+
 /-- `R⁻¹ = (2^384)⁻¹` in the spec field. -/
-def rInv : S :=
-  ⟨0x14fec701e8fb0ce9ed5e64273c4f538b1797ab1458a88de9343ea97914956dc87fe11274d898fafbf4d38259380b4820,
-    by decide⟩
+def rInv : S := EthLib.Cryptography.Bls.Fp.ofNat rInvNat
 
 /-- The spec field element a word vector stands for: `raw · R⁻¹ mod p`. -/
 def val (a : Fp) : S := EthLib.Cryptography.Bls.Fp.ofNat a.raw * rInv
@@ -181,6 +153,7 @@ theorem val_eq_natCast (a : Fp) : a.val = (a.raw : S) * rInv := by
 
 set_option exponentiation.threshold 512 in
 theorem toZ_rInv_nat : ((2 ^ 384 : Nat) : Z) * toZMod rInv = 1 := by
+  rw [rInv, toZMod_ofNat]
   decide
 
 /-- `rInv` inverts `R = 2^384`. -/
@@ -987,17 +960,16 @@ theorem powIter_spec {a : Fp} (ha : Canonical a) (k : Nat) :
     rw [powIter, val_mul _ ha, toZMod_mul, ih.2, pow_succ]
 
 theorem powTable_eq (a : Fp) : powTable a =
-    ((List.range' 0 16).foldl (fun (r : MProd Fp (Array Fp)) _ => ⟨mul r.1 a, r.2.push r.1⟩)
-      ⟨one, Array.mkEmpty 16⟩).2 := by
+    ((List.range' 0 16).foldl (fun (r : Array Fp × Fp) _ => (r.1.push r.2, mul r.2 a))
+      (Array.mkEmpty 16, one)).1 := by
   unfold powTable
-  dsimp only
-  rw [forIn_range_eq_foldl (g := fun (r : MProd Fp (Array Fp)) _ => ⟨mul r.1 a, r.2.push r.1⟩)]
+  rw [Id.run_bind, forIn_range_eq_foldl (g := fun (r : Array Fp × Fp) _ => (r.1.push r.2, mul r.2 a))]
   · rfl
   · intro i r; rfl
 
 theorem powTable_fold (a : Fp) (k : Nat) :
-    (List.range' 0 k).foldl (fun (r : MProd Fp (Array Fp)) _ => ⟨mul r.1 a, r.2.push r.1⟩)
-      ⟨one, Array.mkEmpty 16⟩ = ⟨powIter a k, ((List.range k).map (powIter a)).toArray⟩ := by
+    (List.range' 0 k).foldl (fun (r : Array Fp × Fp) _ => (r.1.push r.2, mul r.2 a))
+      (Array.mkEmpty 16, one) = (((List.range k).map (powIter a)).toArray, powIter a k) := by
   induction k with
   | zero => rfl
   | succ k ih =>
@@ -1151,7 +1123,7 @@ theorem val_powNibbles {a : Fp} (ha : Canonical a) (e : Nat) :
 /-- `val_powNibbles` in the spec's `powNat` form. -/
 theorem val_powNibbles_powNat {a : Fp} (ha : Canonical a) (e : Nat) :
     (powNibbles a (nibbles e)).val = EthLib.Cryptography.Bls.Fp.powNat a.val e := by
-  rw [val_powNibbles ha, powNat_eq_monoid_pow]
+  rw [val_powNibbles ha, EthLib.Cryptography.Bls.Fp.powNat_eq_pow]
 
 theorem powNat_eq (a : Fp) (e : Nat) : powNat a e = powNibbles a (nibbles e) := rfl
 
@@ -1178,7 +1150,8 @@ theorem sqrt_eq (a : Fp) : sqrt a =
 /-- `sqrt` computes the spec's `Fp.sqrt` (through `val`). -/
 theorem sqrt_map_val {a : Fp} (ha : Canonical a) :
     (sqrt a).map val = EthLib.Cryptography.Bls.Fp.sqrt a.val := by
-  rw [sqrt_eq, EthLib.Cryptography.Bls.Fp.sqrt]
+  rw [sqrt_eq, EthLib.Cryptography.Bls.Fp.sqrt, EthLib.Cryptography.Bls.Fp.sqrtCandidate,
+    EthLib.Cryptography.Bls.Fp.powLimbs_sqrtExponent]
   obtain ⟨hc, hv⟩ := powNibbles_nibbles ha ((modulus + 1) / 4)
   have hv' := val_powNibbles_powNat ha ((modulus + 1) / 4)
   generalize powNibbles a (nibbles ((modulus + 1) / 4)) = c at *
@@ -1187,7 +1160,7 @@ theorem sqrt_map_val {a : Fp} (ha : Canonical a) :
         (EthLib.Cryptography.Bls.Fp.powNat a.val ((EthLib.Cryptography.Bls.Fp.modulus + 1) / 4) *
           EthLib.Cryptography.Bls.Fp.powNat a.val ((EthLib.Cryptography.Bls.Fp.modulus + 1) / 4))
         a.val = true := by
-    rw [beq_iff (mul_canonical _ hc) ha, val_mul _ hc, beq_eq_true_iff, hv']
+    rw [beq_iff (mul_canonical _ hc) ha, val_mul _ hc, EthLib.Cryptography.Bls.Fp.beq_iff, hv']
     exact Iff.rfl
   by_cases hb : (mul c c).beq a = true
   · rw [if_pos hb, if_pos (hiff.mp hb)]
@@ -1214,7 +1187,7 @@ theorem signBit_eq_spec (y : Fp) : signBit y = EthLib.Cryptography.Bls.Fp.signBi
   obtain ⟨h1, h2⟩ := sbb6_spec halfP (decode y)
   rw [decode_raw, halfP_raw] at h1
   have hd := raw_lt (sbb6 halfP (decode y)).1
-  have hy := y.val.isLt
+  have hy := EthLib.Cryptography.Bls.Fp.val_lt y.val
   have hp : EthLib.Cryptography.Bls.Fp.modulus % 2 = 1 := by decide
   have hm := modulus_eq
   rcases eq_zero_or_one h2 with h | h <;> rw [h] at h1 ⊢
@@ -1297,26 +1270,29 @@ theorem be64_toNat (b : ByteArray) (off : Nat) : (be64 b off).toNat = bytesVal b
   simp only [bytesVal, Nat.add_zero]
   omega
 
-/-- The spec's decoding loop is `bytesVal` over the whole array. -/
-theorem bytesBEToNat_eq (b : ByteArray) :
-    EthLib.Cryptography.Bls.Fp.bytesBEToNat b = bytesVal b 0 b.size := by
-  have h : EthLib.Cryptography.Bls.Fp.bytesBEToNat b =
-      (List.range' 0 b.size).foldl (fun acc i => (acc <<< 8) ||| b[i]!.toNat) 0 := by
-    unfold EthLib.Cryptography.Bls.Fp.bytesBEToNat
-    dsimp only
-    rw [forIn_range_eq_foldl (g := fun acc i => (acc <<< 8) ||| b[i]!.toNat)]
-    · rfl
-    · intro i r; rfl
-  rw [h]
-  suffices ∀ n, (List.range' 0 n).foldl (fun acc i => (acc <<< 8) ||| b[i]!.toNat) 0 =
-      bytesVal b 0 n from this _
-  intro n
+/-- The spec's big-endian reading of `n` bytes from `off` (as `Montgomery.ofBytesBE`
+reads them) is `bytesVal`. -/
+theorem bytesToNat_ofFn (b : ByteArray) (off n : Nat) :
+    EthLib.Base.bytesToNat (List.ofFn (n := n) fun k => b[off + k.val]!) = bytesVal b off n := by
   induction n with
   | zero => rfl
   | succ n ih =>
-    rw [List.range'_1_concat, List.foldl_append, ih, List.foldl_cons, List.foldl_nil,
-      ← Nat.shiftLeft_add_eq_or_of_lt (by have := b[0 + n]!.toNat_lt; exact this),
-      Nat.shiftLeft_eq, bytesVal, getElem!_eq_get!]
+    rw [List.ofFn_succ_last, EthLib.Base.bytesToNat_append]
+    simp only [Fin.coe_castSucc, Fin.val_last, List.length_singleton, pow_one]
+    rw [ih, bytesVal, getElem!_eq_get!]
+    simp [EthLib.Base.bytesToNat]
+
+/-- The spec's big-endian value of a whole array is `bytesVal` over it. -/
+theorem bytesToNat_eq_bytesVal (b : ByteArray) :
+    EthLib.Base.bytesToNat b.data.toList = bytesVal b 0 b.size := by
+  rw [← bytesToNat_ofFn]
+  congr 1
+  apply List.ext_getElem
+  · simp
+  · intro i h1 h2
+    simp only [List.getElem_ofFn, Nat.zero_add, Array.getElem_toList]
+    rw [getElem!_pos b i (by simpa using h2)]
+    rfl
 
 /-- The six words `fromBytesBE` reads, least significant first. -/
 def wordsBE (b : ByteArray) : Fp :=
@@ -1353,21 +1329,21 @@ theorem fromBytesBE_map_val (b : ByteArray) :
   by_cases hs : b.size ≠ 48
   · rw [if_pos hs, if_pos hs]; rfl
   · rw [if_neg hs, if_neg hs]
-    have hn : EthLib.Cryptography.Bls.Fp.bytesBEToNat b = (wordsBE b).raw := by
-      rw [bytesBEToNat_eq, wordsBE_raw, show b.size = 48 by omega]
+    rw [EthLib.Cryptography.Montgomery.ofBytesBE_eq]
+    have hn : EthLib.Base.bytesToNat (List.ofFn (n := 4 * 12) fun k => b[0 + k.val]!) =
+        (wordsBE b).raw := by
+      rw [bytesToNat_ofFn, wordsBE_raw]
     obtain ⟨-, h1, h0⟩ := subP_spec (wordsBE b)
     have hm := modulus_eq
     by_cases hlt : (wordsBE b).raw < modulus
-    · rw [h1.mpr hlt, show ((1 : UInt64) == 0) = false from rfl, if_neg Bool.false_ne_true]
-      dsimp only
-      rw [dif_pos (by rw [hn]; omega)]
-      show Except.ok (mul (wordsBE b) R2).val = _
-      congr 1
+    · rw [h1.mpr hlt, show ((1 : UInt64) == 0) = false from rfl, if_neg Bool.false_ne_true,
+        if_pos (show _ < EthLib.Cryptography.Bls.Fp.params.p by rw [hn]; exact hlt)]
+      show Except.ok (mul (wordsBE b) R2).val = Except.ok (EthLib.Cryptography.Bls.Fp.ofNat _)
+      refine congrArg Except.ok ?_
       apply toZMod.injective
-      rw [val_mul_R2, toZMod_mk, hn]
-    · rw [h0.mpr (by omega), show ((0 : UInt64) == 0) = true from rfl, if_pos rfl]
-      dsimp only
-      rw [dif_neg (by rw [hn]; omega)]
+      rw [val_mul_R2, toZMod_ofNat, hn]
+    · rw [h0.mpr (by omega), show ((0 : UInt64) == 0) = true from rfl, if_pos rfl,
+        if_neg (show ¬ _ < EthLib.Cryptography.Bls.Fp.params.p by rw [hn]; exact hlt)]
       rfl
 
 /-- Every value `fromBytesBE` returns is canonical. -/
@@ -1440,27 +1416,50 @@ theorem wordsBytes_toList (v : Fp) : (wordsBytes v).data.toList =
   simp [wordsBytes, pushBE64, ByteArray.push, ByteArray.emptyWithCapacity]
   rfl
 
+/-- The eight big-endian bytes of a word. -/
+def wordBytes (w : UInt64) : List UInt8 :=
+  [(w >>> 56).toUInt8, (w >>> 48).toUInt8, (w >>> 40).toUInt8, (w >>> 32).toUInt8,
+    (w >>> 24).toUInt8, (w >>> 16).toUInt8, (w >>> 8).toUInt8, w.toUInt8]
+
+theorem wordBytes_length (w : UInt64) : (wordBytes w).length = 8 := rfl
+
+/-- A word's eight big-endian bytes spell the word. -/
+theorem bytesToNat_wordBytes (w : UInt64) : EthLib.Base.bytesToNat (wordBytes w) = w.toNat := by
+  have := w.toNat_lt
+  simp only [wordBytes, EthLib.Base.bytesToNat, List.foldl, UInt64.toNat_toUInt8,
+    UInt64.toNat_shiftRight, UInt64.reduceToNat, Nat.reduceMod, Nat.shiftRight_eq_div_pow]
+  omega
+
+theorem wordsBytes_words (v : Fp) : (wordsBytes v).data.toList =
+    wordBytes v.l5 ++ (wordBytes v.l4 ++ (wordBytes v.l3 ++
+      (wordBytes v.l2 ++ (wordBytes v.l1 ++ wordBytes v.l0)))) := by
+  rw [wordsBytes_toList]; rfl
+
+/-- The bytes `toBytesBE` emits spell the vector's raw integer. -/
+theorem bytesToNat_wordsBytes (v : Fp) :
+    EthLib.Base.bytesToNat (wordsBytes v).data.toList = v.raw := by
+  rw [wordsBytes_words]
+  simp only [EthLib.Base.bytesToNat_append, bytesToNat_wordBytes, List.length_append,
+    wordBytes_length, raw]
+  ring
+
+/-- The spec's integer of an element is its Montgomery `toNat`. -/
+theorem specVal_eq_toNat (x : S) : x.val = EthLib.Cryptography.Montgomery.toNat x := by
+  unfold EthLib.Cryptography.Bls.Fp.val; rfl
+
 /-- `toBytesBE` computes the spec's `Fp.toBytesBE` of `val` (any input:
-`decode` canonicalizes). -/
+`decode` canonicalizes). Both are 48 bytes spelling `val`. -/
 theorem toBytesBE_eq_spec (a : Fp) : toBytesBE a = EthLib.Cryptography.Bls.Fp.toBytesBE a.val := by
   apply ByteArray.ext
   apply Array.toList_inj.mp
-  rw [toBytesBE_eq_words, wordsBytes_toList, EthLib.Cryptography.Bls.Fp.toBytesBE]
-  simp only [Array.toList_ofFn, List.ofFn_succ, List.ofFn_zero]
-  have hX := decode_raw a
-  generalize decode a = v at *
-  generalize (a.val : Nat) = X at *
-  have := v.l0.toNat_lt; have := v.l1.toNat_lt; have := v.l2.toNat_lt
-  have := v.l3.toNat_lt; have := v.l4.toNat_lt; have := v.l5.toNat_lt
-  simp only [raw] at hX
-  simp only [List.cons.injEq, and_true]
-  and_intros <;>
-  · apply UInt8.toNat_inj.mp
-    simp only [UInt64.toNat_toUInt8, UInt8.toNat_ofNat', UInt64.toNat_shiftRight,
-      UInt64.reduceToNat, Nat.reduceMod, Nat.shiftRight_eq_div_pow,
-      show (0xff : Nat) = 2 ^ 8 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod, Fin.val_succ,
-      Fin.val_zero]
-    omega
+  show (wordsBytes (decode a)).data.toList =
+    (EthLib.Cryptography.Montgomery.toBytesBE a.val).data.toList
+  rw [EthLib.Cryptography.Montgomery.toBytesBE_eq, ← specVal_eq_toNat]
+  apply EthLib.Base.bytesToNat_inj
+  · rw [EthLib.Base.natToBytes_length, wordsBytes_words]; rfl
+  · have hlt : a.val.val < 256 ^ (4 * 12) :=
+      lt_trans (EthLib.Cryptography.Bls.Fp.val_lt a.val) (by decide)
+    rw [bytesToNat_wordsBytes, decode_raw, EthLib.Base.bytesToNat_natToBytes, Nat.mod_eq_of_lt hlt]
 
 /-! ## Wide reduction: `ofBytes64BE` -/
 
@@ -1508,7 +1507,7 @@ theorem pow256_lt_modulus : 256 ^ 32 < modulus := by decide
 theorem ofBytes64BE_spec (b : ByteArray) (off : Nat) (h : off + 64 ≤ b.size) :
     Canonical (ofBytes64BE b off) ∧
       (ofBytes64BE b off).val = EthLib.Cryptography.Bls.Fp.ofNat
-        (EthLib.Cryptography.Bls.Fp.bytesBEToNat (b.extract off (off + 64))) := by
+        (EthLib.Base.bytesToNat (b.extract off (off + 64)).data.toList) := by
   have hA := quad_raw b off
   have hC := quad_raw b (off + 32)
   simp only [Nat.add_assoc, Nat.reduceAdd] at hC
@@ -1527,7 +1526,7 @@ theorem ofBytes64BE_spec (b : ByteArray) (off : Nat) (h : off + 64 ≤ b.size) :
   rw [val_add m1 m2, val_mul _ C256_canonical, val_mul _ R2_canonical, val_C256, val_R2]
   apply toZMod.injective
   rw [toZMod_add, toZMod_mul, toZMod_mul, toZ_val, toZ_val, toZMod_ofNat, toZMod_ofNat, toZMod_ofNat,
-    bytesBEToNat_eq, ByteArray.size_extract, show min (off + 64) b.size - off = 64 by omega,
+    bytesToNat_eq_bytesVal, ByteArray.size_extract, show min (off + 64) b.size - off = 64 by omega,
     bytesVal_extract b off (off + 64) 64 (by omega) h, show (64 : Nat) = 32 + 32 from rfl,
     bytesVal_add, ← hA, ← hC]
   simp only [Nat.cast_add, Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat]

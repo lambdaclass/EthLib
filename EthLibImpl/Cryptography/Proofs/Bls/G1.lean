@@ -11,9 +11,6 @@ For canonical inputs every operation of `EthLibImpl.Cryptography.Bls.G1`
 returns the spec's triple, component by component through `Fp.val`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 set_option linter.unusedSimpArgs false
 
 namespace EthLibImpl.Cryptography.Bls.G1
@@ -40,7 +37,7 @@ theorem isZero_eq {a : Fp} (ha : a.Canonical) : a.isZero = (a.val).isZero := by
 
 theorem beq_eq {a b : Fp} (ha : a.Canonical) (hb : b.Canonical) :
     a.beq b = EthLib.Cryptography.Bls.Fp.beq a.val b.val := by
-  rw [Bool.eq_iff_iff, Fp.beq_iff ha hb, EthLib.Cryptography.Bls.Fp.beq_eq_true_iff]
+  rw [Bool.eq_iff_iff, Fp.beq_iff ha hb, EthLib.Cryptography.Bls.Fp.beq_iff]
 
 /-! Spec-level identities for the replaced constant multiplications. -/
 
@@ -219,7 +216,7 @@ theorem neg_spec {p : G1} (hp : Canonical p) :
 theorem spec_inverse_one : EthLib.Cryptography.Bls.Fp.inverse 1 = 1 := by
   apply toZMod.injective
   unfold EthLib.Cryptography.Bls.Fp.inverse
-  rw [EthLib.Cryptography.Bls.Fp.powNat_eq_monoid_pow, toZMod_pow, toZMod_one, one_pow]
+  rw [EthLib.Cryptography.Bls.Fp.powNat_eq_pow, toZMod_pow, toZMod_one, one_pow]
 
 /-- `toAffine` computes the spec's, coordinate by coordinate. -/
 theorem toAffine_spec {p : G1} (hp : Canonical p) :

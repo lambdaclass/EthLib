@@ -15,9 +15,6 @@ the commutative ring on the spec's `Fp2`, checked after unfolding the spec's
 `Fp6` and `Fp12` products to `Fp2` components.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLibImpl.Cryptography.Bls.Fp12
 
 open scoped EthLib.Cryptography.Bls.Fp2

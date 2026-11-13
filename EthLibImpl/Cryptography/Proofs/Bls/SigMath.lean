@@ -44,9 +44,6 @@ re-proves the two halves it needs (`G1.uncompress_compress_of_ne`,
 main theorems depend only on `propext`, `Classical.choice` and `Quot.sound`.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLib.Cryptography.Bls.G1
 
 open WeierstrassCurve.Jacobian

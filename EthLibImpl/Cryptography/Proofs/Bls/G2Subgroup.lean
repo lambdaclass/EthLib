@@ -17,9 +17,6 @@ The implementation decides `G2` subgroup membership with `ψ(Q) = [x]Q`
   characterisation `rTorsion_iff_eigen_phi12` of the `r`-torsion.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLibImpl.Cryptography.Bls.Mirror.G2
 
 open EthLib.Cryptography.Bls

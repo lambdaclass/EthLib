@@ -44,11 +44,6 @@ each `Fin` operation into the corresponding `ZMod Fp.modulus` operation
 so no defeq check ever unfolds a large power.
 -/
 
--- Core's grind `HPow (Fin n) Nat` instances would shadow Mathlib's monoid
--- power on `Fp`; see `Proofs.Bls.FrZMod`.
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 namespace EthLib.Cryptography.Bls.Fp2
 
 open scoped EthLib.Cryptography.Bls.Fp

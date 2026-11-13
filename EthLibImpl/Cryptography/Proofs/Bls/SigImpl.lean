@@ -13,9 +13,6 @@ the hypothesis `CoreVerifyHyp`. Everything else (key validation, the
 aggregation loops, the compressed aggregate key) is proven here.
 -/
 
-attribute [-instance] Lean.Grind.Fin.instHPowFinNatOfNeZero
-attribute [-instance] Lean.Grind.Fin.instPowFinNatOfNeZero
-
 set_option linter.unusedSimpArgs false
 
 namespace EthLibImpl.Cryptography.Bls.Signatures
