@@ -344,10 +344,8 @@ theorem toSpec_powNat {x : Fp2} (hx : Canonical x) (e : Nat) :
 
 /-! ## Predicates -/
 
-theorem spec_isZero_iff (a : S) : a.isZero = true ↔ a = 0 := by
-  unfold EthLib.Cryptography.Bls.Fp.isZero
-  rw [beq_iff_eq, Fin.ext_iff]
-  rfl
+theorem spec_isZero_iff (a : S) : a.isZero = true ↔ a = 0 :=
+  EthLib.Cryptography.Bls.Fp.isZero_iff
 
 theorem fp_isZero_eq {a : Fp} (ha : a.Canonical) : a.isZero = a.val.isZero := by
   rw [Bool.eq_iff_iff, Fp.isZero_iff ha, spec_isZero_iff]

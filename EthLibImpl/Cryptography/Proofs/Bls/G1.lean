@@ -16,7 +16,8 @@ set_option linter.unusedSimpArgs false
 namespace EthLibImpl.Cryptography.Bls.G1
 
 open EthLib.Cryptography.Bls.Fp (toZMod toZMod_add toZMod_sub toZMod_neg toZMod_mul toZMod_zero
-  toZMod_one toZMod_ofNat toZMod_pow)
+  toZMod_one toZMod_ofNat)
+open EthLibImpl.Cryptography.Bls.SpecFp (toZMod_pow)
 
 open private mulMsb_succ from EthLibImpl.Cryptography.Proofs.Bls.G1Endo
 

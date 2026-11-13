@@ -23,7 +23,8 @@ namespace EthLibImpl.Cryptography.Bls.Fp
 open Limbs
 open scoped EthLib.Cryptography.Bls.Fp
 open EthLib.Cryptography.Bls.Fp (toZMod toZMod_add toZMod_sub toZMod_neg toZMod_mul toZMod_zero
-  toZMod_one toZMod_pow toZMod_ofNat toZMod_mk val_toZMod)
+  toZMod_one toZMod_ofNat)
+open EthLibImpl.Cryptography.Bls.SpecFp (toZMod_pow val_toZMod)
 
 local notation "Z" => ZMod EthLib.Cryptography.Bls.Fp.modulus
 
@@ -865,7 +866,6 @@ theorem val_inverse {a : Fp} (ha : Canonical a) :
     (inverse a).val = EthLib.Cryptography.Bls.Fp.inverse a.val := by
   haveI : Fact (Nat.Prime modulus) := ⟨by rw [modulus_eq]; exact EthLib.Cryptography.Bls.Fp.modulus_prime⟩
   apply toZMod.injective
-  rw [(inverse_spec ha).2, EthLib.Cryptography.Bls.Fp.inverse_eq_inv]
-  rfl
+  rw [(inverse_spec ha).2, EthLib.Cryptography.Bls.Fp.inverse_eq_inv, map_inv₀]
 
 end EthLibImpl.Cryptography.Bls.Fp
