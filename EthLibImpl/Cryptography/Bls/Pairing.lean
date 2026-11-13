@@ -75,54 +75,64 @@ where `b1`, `b4` still need the `x`/`y` coordinate of `P`. -/
   ⟨if pi.pAffine then b0 else b0.mulFp pi.cz, b1.mulFp pi.cx, b4.mulFp pi.cy⟩
 
 /-- Doubling step: `2T` and the tangent line at `T`, scaled by `w³·2YZ³`
-times `Zp³`. The point formulas are the spec's G2 doubling (valid for any
-`a = 0` curve, so no point needs to be on the twist): with `E = 3X²` and
-`Z' = 2YZ`, the affine slope is `E/Z'`; the line coefficients are
-`(E·X − 2Y², −E·Z², Z'·Z²)`. -/
+times `Zp³`. These are the spec's `millerDouble` and `G2.double` (valid for
+any `a = 0` curve, so no point needs to be on the twist): with `E = 3X²` and
+`Z' = 2YZ`, the line coefficients are `(E·X − 2Y², −E·Z², Z'·Z²)`. Like the
+spec, there is no branch on `Y = 0`, and a point at infinity stays as it is.
+
+Each formula is homogeneous in the Jacobian scaling `(X, Y, Z) ↦ (λ²X, λ³Y, λZ)`,
+so on a rescaled spec point the step gives a rescaled spec point and the spec's
+line times a power of `λ`, which the final exponentiation erases. -/
 def dblStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
-  if t.y.isZero then
-    -- Spec: slope `0`, so `2T = (−2·tx, −ty)` and the line is `yp − ty·w⁻³`
-    -- (here `ty = 0`).
-    (⟨-t.x.double, t.y, t.z⟩, pi.line t.y.neg Fp2.zero Fp2.one)
+  let a := t.x.sqr
+  let b := t.y.sqr
+  let e := a.double + a
+  let zz := t.z.sqr
+  let z' := (t.y * t.z).double
+  let line := pi.line (e * t.x - b.double) (-(e * zz)) (z' * zz)
+  if t.z.isZero then (t, line)
   else
-    let a := t.x.sqr
-    let b := t.y.sqr
     let c := b.sqr
     let d := ((t.x + b).sqr - a - c).double
-    let e := a.double + a
     let x' := e.sqr - d.double
     let y' := e * (d - x') - c.double.double.double
-    let z' := (t.y * t.z).double
-    let zz := t.z.sqr
-    (⟨x', y', z'⟩, pi.line (e * t.x - b.double) (-(e * zz)) (z' * zz))
+    (⟨x', y', z'⟩, line)
 
 /-- Addition step: `T + R` and the line through them, both in Jacobian
 coordinates. With `U1 = X·Zr²`, `U2 = Xr·Z²`, `S1 = Y·Zr³`, `S2 = Yr·Z³`,
-`H = U2 − U1`, `N = S2 − S1` and `Z' = Z·Zr·H`, the affine slope is
-`N/Z'`; the line is scaled by `w³·Z'·Z²` times `Zp³`. -/
+`H = U2 − U1` and `N = S2 − S1`, the line is the spec's `millerAdd` line,
+written through `R`: `(N·Xr − H·Z·Yr, −N·Zr², H·Z·Zr³)`, which is the spec's
+line at the affine `R` times `λ³·Zr⁵` when `T` is the spec's point rescaled by
+`λ`, in every case (`T` at infinity and `H = 0` included).
+
+The point follows the spec's `G2.add`: `T` at infinity gives `R`, equal `U`s
+give `2T` or the point at infinity, and otherwise the general formula, which is
+the spec's (Bernstein–Lange) result scaled by `1/2`. -/
 def addStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
   let r := pi.r
   let z1z1 := t.z.sqr
   let z2z2 := r.z.sqr
+  let z2z2z2 := r.z * z2z2
   let u1 := t.x * z2z2
   let u2 := r.x * z1z1
-  let s1 := t.y * (r.z * z2z2)
+  let s1 := t.y * z2z2z2
   let s2 := r.y * (t.z * z1z1)
   let h := u2 - u1
-  let zz := t.z * r.z
-  if h.isZero then
-    -- Spec: slope `0`, so `T + R = (−tx − rx, −ty)` and the line is
-    -- `yp − ty·w⁻³`.
-    (⟨-(u1 + u2), -s1, zz⟩, pi.line t.y.neg Fp2.zero (t.z * z1z1))
+  let n := s2 - s1
+  let hz := h * t.z
+  let line := pi.line (n * r.x - hz * r.y) (-(n * z2z2)) (hz * z2z2z2)
+  if t.z.isZero then (r, line)
+  else if h.isZero then
+    if n.isZero then ((dblStep pi t).1, line)
+    else (⟨Fp2.one, Fp2.one, Fp2.zero⟩, line)
   else
-    let n := s2 - s1
     let hh := h.sqr
     let hhh := hh * h
     let v := u1 * hh
     let x' := n.sqr - hhh - v.double
     let y' := n * (v - x') - s1 * hhh
-    let z' := zz * h
-    (⟨x', y', z'⟩, pi.line (n * t.x - r.z * h * t.y) (-(n * z1z1)) (z' * z1z1))
+    let z' := hz * r.z
+    (⟨x', y', z'⟩, line)
 
 /-- Doubling step for every pair: the new points, and `f` times every
 pair's tangent line, in pair order. -/
