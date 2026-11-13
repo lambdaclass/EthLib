@@ -1,5 +1,6 @@
 import EthLibImpl.Cryptography.Proofs.Bls.Fp6
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorPairing
+import EthLib.Cryptography.Proofs.Bls.Fp12
 
 /-!
 # Proofs: the implementation's `Fp12` computes the spec's `Fp12`
@@ -245,23 +246,26 @@ theorem powNat_canonical {x : Fp12} (hx : Canonical x) (e : Nat) : Canonical (po
       · rw [if_pos h2]; exact mul_canonical hx this
       · rw [if_neg h2]; exact this
 
+/-- `powNat` computes the power `x ^ e` in the spec's `Fp12` (the spec no longer has a
+`powNat` of its own; its ring structure is upstream's `CommRing Fp12`). -/
 theorem toSpec_powNat {x : Fp12} (hx : Canonical x) (e : Nat) :
-    toSpec (powNat x e) = EthLib.Cryptography.Bls.Fp12.powNat (toSpec x) e := by
+    toSpec (powNat x e) = toSpec x ^ e := by
   induction e using Nat.strongRecOn generalizing x with
   | _ e ih =>
-    rw [powNat, EthLib.Cryptography.Bls.Fp12.powNat]
+    rw [powNat]
     by_cases h : e = 0
-    · rw [if_pos h, if_pos h]; exact toSpec_one
-    · rw [if_neg h, if_neg h]
-      have h3 : toSpec (x * x) = toSpec x * toSpec x := toSpec_mul hx hx
-      have key : toSpec (powNat (x * x) (e / 2)) =
-          EthLib.Cryptography.Bls.Fp12.powNat (toSpec x * toSpec x) (e / 2) := by
-        rw [← h3]; exact ih (e / 2) (by omega) (mul_canonical hx hx)
-      have hc := powNat_canonical (mul_canonical hx hx) (e / 2)
+    · rw [if_pos h, h, pow_zero, toSpec_one]; rfl
+    · rw [if_neg h]
+      have key : toSpec (powNat (x * x) (e / 2)) = toSpec x ^ (2 * (e / 2)) := by
+        rw [ih (e / 2) (by omega) (canonical_hMul hx hx), toSpec_hMul hx hx, pow_mul, sq]
+      have hc := powNat_canonical (canonical_hMul hx hx) (e / 2)
       by_cases h2 : e % 2 = 1
-      · rw [if_pos h2, if_pos h2]
-        exact (toSpec_mul hx hc).trans (congrArg (toSpec x * ·) key)
-      · rw [if_neg h2, if_neg h2]; exact key
+      · rw [if_pos h2, toSpec_hMul hx hc, key, ← pow_succ']
+        congr 1
+        omega
+      · rw [if_neg h2, key]
+        congr 1
+        omega
 
 /-! ## Frobenius constants -/
 
@@ -552,16 +556,25 @@ theorem toSpec_mulBy014 {x : Fp12} {b0 b1 b4 : Fp2} (hx : Canonical x) (hb0 : b0
     (hb1 : b1.Canonical) (hb4 : b4.Canonical) :
     toSpec (mulBy014 x b0 b1 b4) = toSpec x *
       EthLibImpl.Cryptography.Bls.Mirror.Line.toFp12 ⟨b0.toSpec, b1.toSpec, b4.toSpec⟩ := by
-  split12 hx
-  show _ = EthLib.Cryptography.Bls.Fp12.mul _ _
-  simp only [mulBy014, toSpec, EthLib.Cryptography.Bls.Fp12.mul,
-    EthLibImpl.Cryptography.Bls.Mirror.Line.toFp12]
-  push
-  unfold12
-  gen12 x
-  generalize Fp2.toSpec b0 = c0
-  generalize Fp2.toSpec b1 = c1
-  generalize Fp2.toSpec b4 = c4
-  ring12
+  obtain ⟨hx0, hx1⟩ := hx
+  have ht0 := Fp6.mulBy01_canonical hx0 hb0 hb1
+  have ht1 := Fp6.mulBy1_canonical hx1 hb4
+  have hs := Fp6.canonical_hAdd hx0 hx1
+  have hb14 := Fp2.canonical_hAdd hb1 hb4
+  have hm := Fp6.mulBy01_canonical hs hb0 hb14
+  have e : mulBy014 x b0 b1 b4 =
+      ⟨x.c0.mulBy01 b0 b1 + (x.c1.mulBy1 b4).mulByV,
+        (x.c0 + x.c1).mulBy01 b0 (b1 + b4) - x.c0.mulBy01 b0 b1 - x.c1.mulBy1 b4⟩ := rfl
+  rw [e, toSpec_mk, Fp6.toSpec_hAdd ht0 (Fp6.mulByV_canonical ht1), Fp6.toSpec_mulByV ht1,
+    Fp6.toSpec_hSub (Fp6.canonical_hSub hm ht0) ht1, Fp6.toSpec_hSub hm ht0,
+    Fp6.toSpec_mulBy01 hs hb0 hb14, Fp6.toSpec_mulBy01 hx0 hb0 hb1, Fp6.toSpec_mulBy1 hx1 hb4,
+    Fp6.toSpec_hAdd hx0 hx1, Fp2.toSpec_hAdd hb1 hb4]
+  -- The sparse factor `b0 + (b1 + b4)·v` is the sum of the two halves of the line.
+  have hB : (⟨b0.toSpec, b1.toSpec + b4.toSpec, EthLib.Cryptography.Bls.Fp2.zero⟩ : S6) =
+      ⟨b0.toSpec, b1.toSpec, EthLib.Cryptography.Bls.Fp2.zero⟩ +
+        ⟨EthLib.Cryptography.Bls.Fp2.zero, b4.toSpec, EthLib.Cryptography.Bls.Fp2.zero⟩ := by
+    rw [s6_add, EthLib.Cryptography.Bls.Fp2.zero_def, add_zero, add_zero]
+  rw [hB]
+  rfl
 
 end EthLibImpl.Cryptography.Bls.Fp12
