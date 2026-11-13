@@ -1,6 +1,6 @@
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp2
 import EthLib.Cryptography.Bls.Pairing
-import EthLib.Cryptography.Proofs.Bls.G1Group
+import EthLib.Cryptography.Proofs.Bls.PairingCongr
 
 /-!
 # Jacobian scaling on spec `G2` triples
@@ -14,9 +14,9 @@ way to the pairing:
 * `ProjEq` is an equivalence relation, and `neg`, `double`, `add`, `mulNat` respect it.
   Nothing here needs the curve equation: it is pure formula algebra over the commutative ring
   `Fp2`.
-* `isInfinity` and `toAffine` are `ProjEq`-invariant, hence so is `Embedded.ofG2`.
+* `isInfinity` and `toAffine` are `ProjEq`-invariant.
 * `pairingCheck_congr_two_g2`: the spec pairing check reads a `G2` point only through
-  `Embedded.ofG2`.
+  `isInfinity` and `toAffine` (the spec's `pairFactor`).
 -/
 
 namespace EthLib.Cryptography.Bls.G2
@@ -33,14 +33,9 @@ def scale (l : Fp2) (P : G2) : G2 := ⟨l * l * P.x, l * l * l * P.y, l * P.z⟩
 theorem ext' {P Q : G2} (hx : P.x = Q.x) (hy : P.y = Q.y) (hz : P.z = Q.z) : P = Q := by
   cases P; cases Q; simp_all
 
-theorem fp2_isZero_iff {a : Fp2} : a.isZero = true ↔ a = 0 := by
-  unfold Fp2.isZero
-  rw [Bool.and_eq_true, G1.isZero_iff, G1.isZero_iff, Fp2.ext_iff]
-  rfl
+theorem fp2_isZero_iff {a : Fp2} : a.isZero = true ↔ a = 0 := Fp2.isZero_iff
 
-theorem fp2_beq_iff {a b : Fp2} : a.beq b = true ↔ a = b := by
-  unfold Fp2.beq
-  rw [Bool.and_eq_true, G1.beq_iff, G1.beq_iff, Fp2.ext_iff]
+theorem fp2_beq_iff {a b : Fp2} : a.beq b = true ↔ a = b := Fp2.beq_iff_eq
 
 theorem isInfinity_iff_z {P : G2} : P.isInfinity = true ↔ P.z = 0 := fp2_isZero_iff
 
@@ -99,9 +94,9 @@ theorem double {P Q : G2} (h : ProjEq P Q) : ProjEq (double P) (double Q) := by
       unfold G2.double
       rw [if_neg hP, if_neg hP2]
       dsimp only
-      generalize Fp2.ofFp (Fp.ofNat 2) = two
-      generalize Fp2.ofFp (Fp.ofNat 3) = three
-      generalize Fp2.ofFp (Fp.ofNat 8) = eight
+      generalize Fp2.ofFp (BaseField.ofNat 2 : Fp) = two
+      generalize Fp2.ofFp (BaseField.ofNat 3 : Fp) = three
+      generalize Fp2.ofFp (BaseField.ofNat 8 : Fp) = eight
       refine Or.inr ⟨l ^ 4, pow_ne_zero 4 hl, ?_⟩
       apply ext' <;> dsimp only <;> ring
 
@@ -121,7 +116,7 @@ theorem add_scale {l m : Fp2} (hl : l ≠ 0) (hm : m ≠ 0) {P Q : G2} (hP : P.z
   unfold G2.add
   rw [if_neg hP', if_neg hQ', if_neg hP2, if_neg hQ2]
   dsimp only [scale]
-  generalize Fp2.ofFp (Fp.ofNat 2) = two
+  generalize Fp2.ofFp (BaseField.ofNat 2 : Fp) = two
   by_cases hu : P.x * (Q.z * Q.z) = Q.x * (P.z * P.z)
   · have hu' : l * l * P.x * (m * Q.z * (m * Q.z)) = m * m * Q.x * (l * P.z * (l * P.z)) := by
       linear_combination (l * l * (m * m)) * hu
@@ -181,8 +176,8 @@ private theorem mulNat_eq (p : G2) (k : Nat) : G2.mulNat p k =
     if k = 0 then G2.zero
     else
       let half := G2.mulNat (G2.double p) (k / 2)
-      if k % 2 = 1 then G2.add p half else half := by
-  rw [G2.mulNat]
+      if k % 2 = 1 then G2.add p half else half :=
+  mulNat_def p k
 
 theorem mulNat (k : Nat) : ∀ {P P' : G2}, ProjEq P P' → ProjEq (G2.mulNat P k) (G2.mulNat P' k) := by
   induction k using Nat.strong_induction_on with
@@ -218,23 +213,21 @@ theorem toAffine_eq {P Q : G2} (h : ProjEq P Q) : P.toAffine = Q.toAffine := by
       simp only [Fp2.inverse_eq_inv, mul_inv]
       refine Prod.ext ?_ ?_ <;> dsimp only <;> field_simp
 
-/-- `Embedded.ofG2` reads a point only through `isInfinity` and `toAffine`, which `ProjEq`
-preserves. -/
-theorem ofG2_eq {P Q : G2} (h : ProjEq P Q) : Embedded.ofG2 P = Embedded.ofG2 Q := by
-  unfold Embedded.ofG2
-  rw [isInfinity_eq h, toAffine_eq h]
-
 end ProjEq
 
 end EthLib.Cryptography.Bls.G2
 
 namespace EthLib.Cryptography.Bls
 
-/-- `pairingCheck` on two pairs reads the second `G2` point only through `Embedded.ofG2` and
-`isInfinity`, which `G2.ProjEq` preserves. -/
+/-- `pairingCheck` on two pairs reads the second `G2` point only through `isInfinity` and
+`toAffine` (the spec's `pairFactor`), which `G2.ProjEq` preserves. -/
 theorem pairingCheck_congr_two_g2 (a : G1 × G2) (p : G1) {h h' : G2} (e : G2.ProjEq h h') :
     pairingCheck #[a, (p, h)] = pairingCheck #[a, (p, h')] := by
-  simp only [pairingCheck, List.forIn_toArray, List.forIn_cons, List.forIn_nil]
-  rw [G2.ProjEq.isInfinity_eq e, G2.ProjEq.ofG2_eq e]
+  have hf : pairFactor (p, h) = pairFactor (p, h') := by
+    unfold pairFactor
+    dsimp only
+    rw [G2.ProjEq.isInfinity_eq e, G2.ProjEq.toAffine_eq e]
+  rw [pairingCheck_eq_finalExp_prod, pairingCheck_eq_finalExp_prod]
+  simp only [List.filterMap_cons, List.filterMap_nil, hf]
 
 end EthLib.Cryptography.Bls
