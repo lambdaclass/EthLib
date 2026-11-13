@@ -36,13 +36,8 @@ open scoped EthLib.Cryptography.Bls.Fp2
 
 local notation "S2" => EthLib.Cryptography.Bls.Fp2
 
-private theorem spec_isZero_iff {a : S2} : a.isZero = true ↔ a = 0 := by
-  rw [EthLib.Cryptography.Bls.Fp2.isZero, Bool.and_eq_true, EthLib.Cryptography.Bls.Fp2.ext_iff]
-  have h : ∀ x : EthLib.Cryptography.Bls.Fp, EthLib.Cryptography.Bls.Fp.isZero x = true ↔ x = 0 :=
-    fun x => by
-      rw [EthLib.Cryptography.Bls.Fp.isZero, beq_iff_eq]
-      exact ZMod.val_eq_zero (n := EthLib.Cryptography.Bls.Fp.modulus) x
-  exact and_congr (h _) (h _)
+private theorem spec_isZero_iff {a : S2} : a.isZero = true ↔ a = 0 :=
+  EthLib.Cryptography.Bls.Fp2.isZero_iff
 
 /-- The value a zero denominator is replaced by. -/
 private def E (a : S2) : S2 := if a.isZero then 1 else a
