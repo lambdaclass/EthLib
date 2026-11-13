@@ -18,8 +18,9 @@ namespace EthLibImpl.Cryptography.Bls.Mirror.HashToCurve
 open EthLib.Cryptography.Bls
 open EthLib.Cryptography.Bls.HashToCurve
 
-open private sgn0Fp2 Z Aprime Bprime k10 k11 k12 k13 k20 k21 k30 k31 k32 k33 k40 k41 k42
-  c1Psi c2Psi c1Psi2 mulNegX from EthLib.Cryptography.Bls.HashToCurve
+open EthLib.Cryptography.Bls.HashToCurve (sgn0Fp2 Z Aprime Bprime k10 k11 k12 k13 k20 k21 k30 k31
+  k32 k33 k40 k41 k42 c1Psi2 mulNegX)
+open EthLib.Cryptography.Bls.G2 (c1Psi c2Psi)
 
 /-- Inverses of `a` and `b` by one inversion, with `inverse 0 = 0`. -/
 def batchInverse2 (a b : Fp2) : Fp2 × Fp2 :=

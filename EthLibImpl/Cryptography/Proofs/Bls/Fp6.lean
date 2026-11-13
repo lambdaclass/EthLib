@@ -18,7 +18,7 @@ namespace EthLib.Cryptography.Bls.Fp2
 open scoped EthLib.Cryptography.Bls.Fp2
 
 /-- Multiplication by `1 + i` is multiplication by the constant `ξ`. -/
-theorem mulByOnePlusI_eq (a : Fp2) :
+theorem mulByOnePlusI_eq_mirror (a : Fp2) :
     mulByOnePlusI a = EthLibImpl.Cryptography.Bls.Mirror.xi * a := by
   apply Fp2.ext
   · show a.c0 - a.c1 = Fp.one * a.c0 - Fp.one * a.c1
@@ -90,7 +90,7 @@ local macro "push" : tactic =>
 local macro "ring_comps" : tactic =>
   `(tactic| (simp only [EthLib.Cryptography.Bls.Fp6.mk.injEq]
              refine ⟨?_, ?_, ?_⟩ <;>
-               (try simp only [EthLib.Cryptography.Bls.Fp2.mulByOnePlusI_eq,
+               (try simp only [EthLib.Cryptography.Bls.Fp2.mulByOnePlusI_eq_mirror,
                  EthLib.Cryptography.Bls.Fp2.zero_def, EthLib.Cryptography.Bls.Fp2.one_def]) <;>
                ring))
 

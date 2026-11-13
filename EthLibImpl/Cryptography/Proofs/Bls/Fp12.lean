@@ -59,7 +59,7 @@ local macro "ring12" : tactic =>
   `(tactic| (and_intros
              all_goals first
                | trivial
-               | ((try simp only [EthLib.Cryptography.Bls.Fp2.mulByOnePlusI_eq,
+               | ((try simp only [EthLib.Cryptography.Bls.Fp2.mulByOnePlusI_eq_mirror,
                    EthLib.Cryptography.Bls.Fp2.zero_def, EthLib.Cryptography.Bls.Fp2.one_def])
                   ring)))
 

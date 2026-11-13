@@ -7,7 +7,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.MirrorPairing
 Field theory for the specification's cubic extension
 `EthLib.Cryptography.Bls.Fp6 = Fp2[v] / (v³ - ξ)`, `ξ = 1 + i`.
 
-* `Fp2.mulByOnePlusI_eq`: the spec's `mulByOnePlusI` is multiplication by
+* `Fp2.mulByOnePlusI_eq_mirror`: the spec's `mulByOnePlusI` is multiplication by
   `Mirror.xi = ⟨1, 1⟩`.
 * `Fp2.pow_card_sub_one_eq_one`: Fermat in `Fp2`.
 * `Mirror.gamma_two_one`: the kernel computes `γ = ξ^((p² - 1)/6)`; its
@@ -46,7 +46,7 @@ private theorem fp_one : (Fp.one : Fp) = (1 : ZMod Fp.modulus) := rfl
 private theorem fp_eq (x y : ZMod Fp.modulus) : (@Eq Fp x y) = (x = y) := rfl
 
 /-- The spec's `mulByOnePlusI` is multiplication by `ξ = 1 + i`. -/
-theorem mulByOnePlusI_eq (a : Fp2) : a.mulByOnePlusI = Mirror.xi * a := by
+theorem mulByOnePlusI_eq_mirror (a : Fp2) : a.mulByOnePlusI = Mirror.xi * a := by
   apply Fp2.ext
   · show a.c0 - a.c1 = Fp.one * a.c0 - Fp.one * a.c1
     simp only [fp_sub, fp_mul, fp_one, fp_eq]
@@ -213,7 +213,7 @@ attribute [ext] Fp6
     (a * b).c0 = a.c0 * b.c0 + Mirror.xi * (a.c1 * b.c2 + a.c2 * b.c1) := by
   show ((a.c1 + a.c2) * (b.c1 + b.c2) - a.c1 * b.c1 - a.c2 * b.c2).mulByOnePlusI
     + a.c0 * b.c0 = _
-  rw [Fp2.mulByOnePlusI_eq]
+  rw [Fp2.mulByOnePlusI_eq_mirror]
   ring
 
 /-- The `v¹` coefficient of the spec's Karatsuba product. -/
@@ -221,7 +221,7 @@ attribute [ext] Fp6
     (a * b).c1 = a.c0 * b.c1 + a.c1 * b.c0 + Mirror.xi * (a.c2 * b.c2) := by
   show (a.c0 + a.c1) * (b.c0 + b.c1) - a.c0 * b.c0 - a.c1 * b.c1
     + (a.c2 * b.c2).mulByOnePlusI = _
-  rw [Fp2.mulByOnePlusI_eq]
+  rw [Fp2.mulByOnePlusI_eq_mirror]
   ring
 
 /-- The `v²` coefficient of the spec's Karatsuba product. -/
@@ -310,7 +310,7 @@ theorem natCast_def (n : ℕ) : ((n : ℕ) : Fp6) = ⟨((n : ℕ) : Fp2), 0, 0�
 theorem mulByV_eq (a : Fp6) : a.mulByV = Fp6.v * a := by
   apply Fp6.ext
   · show a.c2.mulByOnePlusI = _
-    rw [Fp2.mulByOnePlusI_eq, mul_c0, v_c0, v_c1, v_c2]
+    rw [Fp2.mulByOnePlusI_eq_mirror, mul_c0, v_c0, v_c1, v_c2]
     ring
   · show a.c0 = _
     rw [mul_c1, v_c0, v_c1, v_c2]
@@ -352,7 +352,7 @@ theorem norm_eq (a : Fp6) : norm a = a.c0 * a.c0 * a.c0 + Mirror.xi * (a.c1 * a.
 /-- The spec's inverse is the adjugate scaled by the inverse norm. -/
 theorem inverse_eq (a : Fp6) : a.inverse =
     ⟨(adj a).c0 * (norm a)⁻¹, (adj a).c1 * (norm a)⁻¹, (adj a).c2 * (norm a)⁻¹⟩ := by
-  simp only [Fp6.inverse, Fp2.mulByOnePlusI_eq, Fp2.inverse_eq_inv, adj, norm]
+  simp only [Fp6.inverse, Fp2.mulByOnePlusI_eq_mirror, Fp2.inverse_eq_inv, adj, norm]
 
 /-- `adj (adj a) = N(a) · a`. -/
 theorem adj_adj (a : Fp6) :

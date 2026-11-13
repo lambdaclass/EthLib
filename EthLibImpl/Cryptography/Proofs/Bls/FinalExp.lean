@@ -78,7 +78,7 @@ theorem cycSqr_mk6 (a0 a1 a2 a3 a4 a5 : Fp2) :
       (3 * (xi * (2 * (a2 * a5))) + 2 * a1) (3 * (a1 * a1 + xi * (a4 * a4)) - 2 * a2)
       (3 * (2 * (a0 * a3)) + 2 * a3) (3 * (a2 * a2 + xi * (a5 * a5)) - 2 * a4)
       (3 * (2 * (a1 * a4)) + 2 * a5) := by
-  simp only [cycSqr, sqrFp4, threeSubTwo, threeAddTwo, mk6, Fp2.mulByOnePlusI_eq]
+  simp only [cycSqr, sqrFp4, threeSubTwo, threeAddTwo, mk6, Fp2.mulByOnePlusI_eq_mirror]
   apply Fp12.ext <;> apply Fp6.ext <;> ring
 
 /-- Granger–Scott: on the cyclotomic subgroup `a^(p⁴ - p² + 1) = 1`, the
@@ -246,7 +246,7 @@ theorem g4_eq {a0 a1 a2 a3 a4 a5 : Fp2}
       linear_combination (-1) * this
   · rw [if_neg (fun h => h1 (spec_fp2_isZero_iff.mp h))]
     dsimp only
-    simp only [Fp2.inverse_eq_inv, Fp2.mulByOnePlusI_eq]
+    simp only [Fp2.inverse_eq_inv, Fp2.mulByOnePlusI_eq_mirror]
     have hd : a1 + a1 + (a1 + a1) ≠ 0 := by
       have : a1 + a1 + (a1 + a1) = 4 * a1 := by ring
       rw [this]; exact mul_ne_zero h4 h1
@@ -263,7 +263,7 @@ theorem decompress_compress {A : Fp12} (hA : A ^ (Fp.modulus ^ 4 - Fp.modulus ^ 
   rw [g4_eq hA]
   show mk6 _ a1 a2 a3 a4 a5 = _
   apply mk6_congr _ rfl rfl rfl rfl rfl
-  simp only [compress, mk6, Fp2.mulByOnePlusI_eq, Fp2.one_def]
+  simp only [compress, mk6, Fp2.mulByOnePlusI_eq_mirror, Fp2.one_def]
   linear_combination (-1) * R3
 
 /-- Compression commutes with `cycSqr` (formula equality). -/
