@@ -1,6 +1,7 @@
 import EthLib.Cryptography.Bls.Signatures
 import EthLib.Cryptography.Bls.Pairing
 import EthLib.Cryptography.Bls.HashToCurve
+import EthLib.Cryptography.Exports.Bls
 
 /-! Benchmarks EthLib's BLS on test vectors produced by blst
 (`blstbench gen`). Usage: `blsbench VECTORS [OP...]`; with no OP it checks
@@ -59,23 +60,19 @@ def timeOp (name : String) (minNs : Nat) (perCall : Nat) (f : Nat → IO Unit) :
   IO.println s!"{name} {sorted[2]!.round} ns"
   (← IO.getStdout).flush
 
-/-- `Fp.add` without the `%`: one conditional subtraction. -/
-@[inline] def addCs (a b : Fp) : Fp :=
-  if h : a.val + b.val < Fp.modulus then ⟨a.val + b.val, h⟩
-  else ⟨a.val + b.val - Fp.modulus, by have := a.isLt; have := b.isLt; omega⟩
-
-/-- `Fp.sub` without the `%`. -/
-@[inline] def subCs (a b : Fp) : Fp :=
-  if h : b.val ≤ a.val then ⟨a.val - b.val, by have := a.isLt; omega⟩
-  else ⟨a.val + Fp.modulus - b.val, by have := b.isLt; omega⟩
-
 def flipBit (b : ByteArray) : ByteArray := b.set! 0 (b.get! 0 ^^^ 1)
 
+/-- The spec's exported fast aggregate verification, on bytes, as a `Bool`. -/
+def fastAggVerify (pks : Array ByteArray) (msg sig : ByteArray) : Bool :=
+  match EthLib.Cryptography.Bls.Exports.ethFastAggregateVerifyExport pks msg sig with
+  | .ok 1 => true
+  | _ => false
+
 def check (v : Vectors) : IO Unit := do
-  let ok1 := ethFastAggregateVerify (v.pubkeys.extract 0 1) v.msg (v.sig 1)
-  let ok8 := ethFastAggregateVerify (v.pubkeys.extract 0 8) v.msg (v.sig 8)
-  let badMsg := ethFastAggregateVerify (v.pubkeys.extract 0 1) (flipBit v.msg) (v.sig 1)
-  let badSig := ethFastAggregateVerify (v.pubkeys.extract 0 8) v.msg (v.sig 1)
+  let ok1 := fastAggVerify (v.pubkeys.extract 0 1) v.msg (v.sig 1)
+  let ok8 := fastAggVerify (v.pubkeys.extract 0 8) v.msg (v.sig 8)
+  let badMsg := fastAggVerify (v.pubkeys.extract 0 1) (flipBit v.msg) (v.sig 1)
+  let badSig := fastAggVerify (v.pubkeys.extract 0 8) v.msg (v.sig 1)
   IO.println s!"check: verify n=1 {ok1}, n=8 {ok8}, wrong msg {badMsg}, wrong sig {badSig}"
   unless ok1 && ok8 && !badMsg && !badSig do
     throw (IO.userError "EthLib disagrees with blst on the test vectors")
@@ -90,7 +87,7 @@ def run (v : Vectors) (op : String) : IO Unit := do
     | .ok s => pure s | .error _ => throw (IO.userError "sig")
   let q ← match HashToCurve.hashToG2 v.msg DST with
     | .ok q => pure q | .error _ => throw (IO.userError "h2c")
-  let f := millerLoop blsX (Embedded.ofG2 q) (Embedded.ofG1 p)
+  let f := millerLoop blsX q.toAffine p.toAffine
   -- Inputs come out of a ref and results go into one, so the compiler can
   -- neither hoist the work out of the loop nor drop it.
   let fpIn ← IO.mkRef (p.x, p.y)
@@ -113,16 +110,6 @@ def run (v : Vectors) (op : String) : IO Unit := do
       let (a, b) ← fpIn.get
       let mut x := a
       for _ in [:1000] do x := x - b
-      fpSink.set x.val
-  | "fp_add_cs" => timeOp op micro 1000 fun _ => do
-      let (a, b) ← fpIn.get
-      let mut x := a
-      for _ in [:1000] do x := addCs x b
-      fpSink.set x.val
-  | "fp_sub_cs" => timeOp op micro 1000 fun _ => do
-      let (a, b) ← fpIn.get
-      let mut x := a
-      for _ in [:1000] do x := subCs x b
       fpSink.set x.val
   | "nat_mul_shr" => timeOp op micro 1000 fun _ => do
       -- Three bignum ops, none a division: the 381-bit product, a shift back
@@ -162,10 +149,10 @@ def run (v : Vectors) (op : String) : IO Unit := do
       boolSink.set (match G2.uncompress b with | .ok s => G2.inSubgroup s | .error _ => false)
   | "hash_to_g2" => timeOp op micro 1 fun _ => do
       let m ← (← IO.mkRef v.msg).get
-      boolSink.set (HashToCurve.hashToG2 m DST).isOk
+      boolSink.set (HashToCurve.hashToG2 (F := Fp) m DST).isOk
   | "miller_loop" => timeOp op micro 1 fun _ => do
       let pp ← (← IO.mkRef p).get
-      fp12Sink.set (millerLoop blsX (Embedded.ofG2 q) (Embedded.ofG1 pp))
+      fp12Sink.set (millerLoop blsX q.toAffine pp.toAffine)
   | "final_exp" => timeOp op micro 1 fun _ => do
       fp12Sink.set (finalExponentiation (← fp12In.get))
   | "pairing_check_2" => timeOp op micro 1 fun _ => do
@@ -178,12 +165,15 @@ def run (v : Vectors) (op : String) : IO Unit := do
       let pks := v.pubkeys.extract 0 n
       let sig := v.sig n
       timeOp s!"fast_agg_verify n={n}" micro 1 fun _ => do
-        boolSink.set (ethFastAggregateVerify (← (← IO.mkRef pks).get) v.msg sig)
+        boolSink.set (fastAggVerify (← (← IO.mkRef pks).get) v.msg sig)
     | ["aggregate_pubkeys", n] => do
       let n := n.toNat!
       let pks := v.pubkeys.extract 0 n
       timeOp s!"aggregate_pubkeys n={n}" micro 1 fun _ => do
-        boolSink.set (ethAggregatePubkeys (← (← IO.mkRef pks).get)).toBool
+        boolSink.set
+          (match EthLib.Cryptography.Bls.Exports.ethAggregatePubkeysExport (← (← IO.mkRef pks).get) with
+            | .ok _ => true
+            | .error _ => false)
     | _ => throw (IO.userError s!"unknown op {op}")
 
 def allOps : List String :=

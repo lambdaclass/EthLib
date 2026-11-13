@@ -141,10 +141,17 @@ lean_lib «CheckAccessorsTest» where
 
 /-! ## Local additions (not for upstream) -/
 
+/-- Lake v4.35.0 loads `EthLib`'s shared library as a plugin, after every dynlib.
+The spec's export library links against it, so a classic file that imports the
+exports fails to load them unless `EthLib`'s shared library is loaded first. -/
+def loadEthLibFirst : Array String :=
+  #[s!"--load-dynlib=.lake/build/lib/{nameToSharedLib "EthLib_EthLib"}"]
+
 /-- Benchmarks of the spec's BLS on test vectors produced by blst. -/
 lean_exe blsbench where
   root := `Bench
   allowNonModules := true
+  moreLeanArgs := loadEthLibFirst
 
 /-- An optimized BLS12-381 implementation of the spec. Imports only the
 spec's error type, SHA-256 and scalar field, never Mathlib. -/
@@ -158,23 +165,21 @@ lean_lib «EthLibImpl» where
 lean_exe implbench where
   root := `ImplBench
   allowNonModules := true
+  moreLeanArgs := loadEthLibFirst
   moreLeancArgs := #["-O3", "-falign-functions=64"]
 
 /-- Differential fuzzing: `EthLibImpl` against the `EthLib` spec. -/
 lean_exe implfuzz where
   root := `ImplFuzz
   allowNonModules := true
+  moreLeanArgs := loadEthLibFirst
   moreLeancArgs := #["-O3", "-falign-functions=64"]
 
 /-- Proofs that `EthLibImpl` computes the spec's results.
 
-`Equivalence` states its results against the spec's C exports, so it imports the
-`Exports` library, whose shared library links against `EthLib`'s. Lake v4.35.0
-loads `EthLib`'s shared library as a plugin, after every dynlib, so the export
-library would fail to resolve its symbols; loading `EthLib`'s first fixes the
-order. -/
+`Equivalence` states its results against the spec's C exports. -/
 lean_lib «ImplProofs» where
   roots := #[`EthLibImpl.Cryptography.Proofs]
   allowNonModules := true
   precompileModules := false
-  moreLeanArgs := #[s!"--load-dynlib=.lake/build/lib/{nameToSharedLib "EthLib_EthLib"}"]
+  moreLeanArgs := loadEthLibFirst

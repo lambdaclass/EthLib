@@ -1,4 +1,5 @@
 import EthLib.Cryptography.Bls
+import EthLib.Cryptography.Exports.Bls
 import EthLibImpl
 
 /-! Differential tests and benchmarks: `EthLibImpl` against `EthLib`. -/
@@ -18,6 +19,16 @@ def toS2 (a : I2) : S2 := ⟨toS a.c0, toS a.c1⟩
 def toS6 (a : I6) : S6 := ⟨toS2 a.c0, toS2 a.c1, toS2 a.c2⟩
 def toS12 (a : I12) : S12 := ⟨toS6 a.c0, toS6 a.c1⟩
 def ofS (a : S) : I := EthLibImpl.Cryptography.Bls.Fp.ofNat a.val
+
+/-- Square-and-multiply in the spec's `Fp12`, the reference for the Frobenius map
+(the spec itself keeps only the cyclotomic power). -/
+def powS12 (base : S12) (e : Nat) : S12 :=
+  if e = 0 then EthLib.Cryptography.Bls.Fp12.one
+  else
+    let half := powS12 (base * base) (e / 2)
+    if e % 2 = 1 then base * half else half
+termination_by e
+decreasing_by omega
 
 /-- xorshift64* PRNG state. -/
 structure Rng where s : UInt64
@@ -97,7 +108,7 @@ def fieldTests (iters : Nat) : IO Unit := do
     okFp12 := okFp12 && (toS12 (m * n)).beq (sm * sn) && (toS12 m.sqr).beq (sm * sm)
       && (toS12 m.inverse).beq sm.inverse
       && (toS12 (m.mulBy014 n.c0.c0 n.c0.c1 n.c1.c1)).beq (sm * line)
-      && (toS12 m.frobenius1).beq (EthLib.Cryptography.Bls.Fp12.powNat sm EthLib.Cryptography.Bls.Fp.modulus)
+      && (toS12 m.frobenius1).beq (powS12 sm EthLib.Cryptography.Bls.Fp.modulus)
       && (toS12 m.frobenius2).beq (toS12 m.frobenius1.frobenius1)
       && (toS12 cyc.cycSqr).beq (toS12 (cyc * cyc))
   report "Fp add/sub/mul/neg/inv/sqrt/bytes/signBit" okFp
@@ -288,6 +299,11 @@ def pairingTests (v : Vectors) : IO Unit := do
   report "finalExpCube = (f^((p^12-1)/r))^3" okFe
   let _ := v
 
+/-- An exported boolean: `1` means true, and anything else (an error included) false. -/
+def isTrue : Except (UInt32 × String) UInt8 → Bool
+  | .ok 1 => true
+  | _ => false
+
 def sigTests (v : Vectors) : IO Unit := do
   let mut ok := true
   let pk1 := v.pubkeys.extract 0 1
@@ -302,8 +318,9 @@ def sigTests (v : Vectors) : IO Unit := do
   let expected := #[true, true, false, false, true, false, false, false, false, false, false, false]
   let mut i := 0
   for (pks, msg, sig) in cases do
-    let impl := EthLibImpl.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig
-    let spec := EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig
+    -- The exports, which `Equivalence` proves equal: the spec takes typed keys inside.
+    let impl := isTrue (EthLibImpl.Cryptography.Bls.Exports.ethFastAggregateVerifyExport pks msg sig)
+    let spec := isTrue (EthLib.Cryptography.Bls.Exports.ethFastAggregateVerifyExport pks msg sig)
     if impl != spec || impl != expected[i]! then
       IO.println s!"  verify case {i}: impl {impl}, spec {spec}, expected {expected[i]!}"
     ok := ok && impl == spec && impl == expected[i]!
@@ -311,11 +328,12 @@ def sigTests (v : Vectors) : IO Unit := do
   report s!"ethFastAggregateVerify ({cases.size} cases)" ok
   let mut okAgg := true
   for pks in [pk1, pk8, #[], #[pk1[0]!.extract 0 47], #[pk1[0]!, flipBit pk1[0]!],
+              #[flipBit pk1[0]!, pk1[0]!.extract 0 47],
               #[EthLibImpl.Cryptography.Bls.G1.infinityBytes]] do
-    let a := EthLibImpl.Cryptography.Bls.Signatures.ethAggregatePubkeys pks
-    let b := EthLib.Cryptography.Bls.Signatures.ethAggregatePubkeys pks
+    let a := EthLibImpl.Cryptography.Bls.Exports.ethAggregatePubkeysExport pks
+    let b := EthLib.Cryptography.Bls.Exports.ethAggregatePubkeysExport pks
     okAgg := okAgg && (match a, b with
-      | .ok x, .ok y => x == y | .error e, .error e' => e.message == e'.message | _, _ => false)
+      | .ok x, .ok y => x == y | .error e, .error e' => e == e' | _, _ => false)
   report "ethAggregatePubkeys (bytes and errors)" okAgg
 
 /-! ## Benchmarks -/

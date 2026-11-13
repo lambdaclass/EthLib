@@ -1,4 +1,5 @@
 import EthLib.Cryptography.Bls
+import EthLib.Cryptography.Exports.Bls
 import EthLibImpl
 
 /-!
@@ -45,6 +46,16 @@ def toS12 (a : I12) : S12 := ⟨toS6 a.c0, toS6 a.c1⟩
 def toSG1 (p : IG1) : SG1 := ⟨toS p.x, toS p.y, toS p.z⟩
 def toSG2 (p : IG2) : SG2 := ⟨toS2 p.x, toS2 p.y, toS2 p.z⟩
 
+/-- Square-and-multiply in the spec's `Fp12`, the reference for the Frobenius map
+(the spec itself keeps only the cyclotomic power). -/
+def powS12 (base : S12) (e : Nat) : S12 :=
+  if e = 0 then EthLib.Cryptography.Bls.Fp12.one
+  else
+    let half := powS12 (base * base) (e / 2)
+    if e % 2 = 1 then base * half else half
+termination_by e
+decreasing_by omega
+
 def P : Nat := EthLib.Cryptography.Bls.Fp.modulus
 def R : Nat := EthLib.Cryptography.Bls.Fr.modulus
 
@@ -85,6 +96,11 @@ def hSG2Point (p : SG2) : String :=
 def exStr {α : Type} (f : α → String) : Except BlsError α → String
   | .ok a => s!"ok {f a}"
   | .error e => s!"err {e.message}"
+
+/-- An export's result: its value, or its error code and message. -/
+def resStr {α : Type} (f : α → String) : Except (UInt32 × String) α → String
+  | .ok a => s!"ok {f a}"
+  | .error (code, msg) => s!"err {code} {msg}"
 
 def hList {α : Type} (f : α → String) (xs : Array α) : String :=
   "[" ++ ", ".intercalate (xs.toList.map f) ++ "]"
@@ -541,7 +557,7 @@ def fp12Target (c : Ctx) (g : Rng) (iter : Nat) : IO Unit := do
   -- frobenius against the p-th power (slow spec side, so only some iterations)
   if iter % 4 == 0 then
     c.fp12 "frobenius1" inp a.frobenius1
-      (EthLib.Cryptography.Bls.Fp12.powNat sa EthLib.Cryptography.Bls.Fp.modulus)
+      (powS12 sa EthLib.Cryptography.Bls.Fp.modulus)
   -- cycSqr on a cyclotomic element (conj a / a)^(p^2+1); a = 0 is not one
   if !(sa.beq EthLib.Cryptography.Bls.Fp12.zero) then
     let h := a.conj * a.inverse
@@ -858,14 +874,15 @@ def sigTarget (c : Ctx) (v : Vectors) (g : Rng) : IO Unit := do
       let (p, g2) := g.g2Point; g := g2
       sig := if kind == 0 then EthLibImpl.Cryptography.Bls.G2.compress p else v.aggs[0]!.2
   let inp := fun _ => s!"pks={hKeys pks} msg={hexBytes msg} sig={hexBytes sig}"
+  -- The exports, which `Equivalence` proves equal: the spec takes typed keys inside.
   c.note (EthLibImpl.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig)
-  c.bool "ethFastAggregateVerify" inp
-    (EthLibImpl.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig)
-    (EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig)
+  c.str "ethFastAggregateVerifyExport" inp
+    (resStr toString (EthLibImpl.Cryptography.Bls.Exports.ethFastAggregateVerifyExport pks msg sig))
+    (resStr toString (EthLib.Cryptography.Bls.Exports.ethFastAggregateVerifyExport pks msg sig))
   let inpA := fun _ => s!"pks={hKeys pks}"
-  c.str "ethAggregatePubkeys" inpA
-    (exStr hexBytes (EthLibImpl.Cryptography.Bls.Signatures.ethAggregatePubkeys pks))
-    (exStr hexBytes (EthLib.Cryptography.Bls.Signatures.ethAggregatePubkeys pks))
+  c.str "ethAggregatePubkeysExport" inpA
+    (resStr hexBytes (EthLibImpl.Cryptography.Bls.Exports.ethAggregatePubkeysExport pks))
+    (resStr hexBytes (EthLib.Cryptography.Bls.Exports.ethAggregatePubkeysExport pks))
 
 end Targets
 
