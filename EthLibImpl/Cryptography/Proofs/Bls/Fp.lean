@@ -1,6 +1,7 @@
 import EthLibImpl.Cryptography.Bls.Fp
 import EthLibImpl.Cryptography.Proofs.Bls.Limbs
 import EthLib.Cryptography.Proofs.Bls.FpZMod
+import EthLibImpl.Cryptography.Proofs.Bls.SpecFp
 import EthLib.Cryptography.Proofs.Bls.Compress
 import EthLib.Cryptography.Proofs.IdLoops
 
@@ -57,28 +58,6 @@ products of words treated as atoms. Montgomery multiplication keeps the
 accumulator below `2p` after every row, and one conditional subtraction
 (`reduceOnce`) then lands in `[0, p)`.
 -/
-
-namespace EthLibImpl.Cryptography.Bls.SpecFp
-
-/-! ## The spec field through `ZMod p`
-
-The spec's `Fp.toZMod` lemmas cover the ring operations and `ofNat`; these
-add the two that the implementation's proofs also use. -/
-
-open scoped EthLib.Cryptography.Bls.Fp
-
-local notation "S" => EthLib.Cryptography.Bls.Fp
-
-/-- Monoid power (on the spec's scoped field instance) commutes with `toZMod`. -/
-theorem toZMod_pow (x : S) (n : Nat) :
-    EthLib.Cryptography.Bls.Fp.toZMod (x ^ n) = EthLib.Cryptography.Bls.Fp.toZMod x ^ n :=
-  map_pow EthLib.Cryptography.Bls.Fp.toZMod x n
-
-/-- `ZMod.val` after `toZMod` is the spec's `val`. -/
-theorem val_toZMod (x : S) : (EthLib.Cryptography.Bls.Fp.toZMod x).val = x.val :=
-  (EthLib.Cryptography.Bls.Fp.val_eq x).symm
-
-end EthLibImpl.Cryptography.Bls.SpecFp
 
 namespace EthLibImpl.Cryptography.Bls.Fp
 

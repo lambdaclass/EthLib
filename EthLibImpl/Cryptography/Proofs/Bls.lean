@@ -31,6 +31,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.PairingImpl
 import EthLibImpl.Cryptography.Proofs.Bls.SigImpl
 import EthLibImpl.Cryptography.Proofs.Bls.SigMath
 import EthLibImpl.Cryptography.Proofs.Bls.Sha256Fast
+import EthLibImpl.Cryptography.Proofs.Bls.SpecFp
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp12
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp2
 import EthLibImpl.Cryptography.Proofs.Bls.SpecFp6
