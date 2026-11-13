@@ -14,7 +14,8 @@ This file adds what the implementation's proofs need on top:
 * `Mirror.xi_eq`: the mirror's `ξ` is the spec's `Fp2.xi`, so the spec's
   `Fp2.mulByOnePlusI_eq` (`a.mulByOnePlusI = a * Fp2.xi`) covers the mirror.
 * `Fp2.pow_card_sub_one_eq_one`: Fermat in `Fp2`.
-* `Mirror.gamma_two_one_sq`: `γ = ξ^((p² - 1)/6)` satisfies `γ² - γ + 1 = 0`
+* `Mirror.gamma_two_one`: the value of `γ = ξ^((p² - 1)/6)` (its `c1` is `0`);
+  `Mirror.gamma_two_one_sq`: `γ² - γ + 1 = 0`
   (computed by the kernel in the spec's `Fin p` model), so `γ` is a
   primitive sixth root of unity (`Mirror.gamma_two_one_cube`,
   `Mirror.gamma_two_one_sq_ne_one`). Consequences: `ξ` is neither a square
@@ -44,6 +45,14 @@ open EthLib.Cryptography.Bls
 theorem xi_eq : xi = Fp2.xi := rfl
 
 /-! ## `γ = ξ^((p² - 1)/6)`, computed by the kernel in the spec's model -/
+
+set_option exponentiation.threshold 1024 in
+/-- `γ = ξ^((p² - 1)/6)` lies in `Fp` (its `c1` is `0`). Kernel-checked in the
+spec's `Fin p` model of `Fp` (a 759-bit exponent). -/
+theorem gamma_two_one : gamma 2 1 =
+    ⟨0x5f19672fdf76ce51ba69c6076a0f77eaddb3a93be6f89688de17d813620a00022e01fffffffeffff,
+     0⟩ := by
+  decide_eq_at_model [gamma, xi]
 
 /-- `γ = ξ^((p² - 1)/6)` is a primitive sixth root of unity:
 `γ² - γ + 1 = 0`. The kernel evaluates the 759-bit power in the spec's
