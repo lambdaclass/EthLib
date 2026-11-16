@@ -2,6 +2,7 @@ import EthLibImpl.Cryptography.Proofs.Bls.Fp12
 import EthLibImpl.Cryptography.Proofs.Bls.G1
 import EthLibImpl.Cryptography.Proofs.Bls.G2Defs
 import EthLibImpl.Cryptography.Proofs.Bls.MirrorPairing
+import EthLibImpl.Cryptography.Proofs.Bls.MillerStep
 import EthLibImpl.Cryptography.Proofs.Bls.Decompress
 import EthLibImpl.Cryptography.Bls.Pairing
 
@@ -100,6 +101,53 @@ attribute [local simp] Fp2.toSpec_hAdd Fp2.toSpec_hSub Fp2.toSpec_hMul Fp2.toSpe
   TwistPoint.toSpec_mk TwistPoint.toSpec_x TwistPoint.toSpec_y TwistPoint.toSpec_z
   PairInput.toSpec_r TwistPoint.canonical_mk Line.toSpec_mk
 
+/-- The implementation's doubling step, its point: the lets inlined. -/
+theorem dblStep_fst_eq (pi : PairInput) (t : TwistPoint) :
+    (dblStep pi t).1 = if t.z.isZero then t else
+      let a := t.x.sqr
+      let b := t.y.sqr
+      let e := a.double + a
+      let c := b.sqr
+      let d := ((t.x + b).sqr - a - c).double
+      let x' := e.sqr - d.double
+      ⟨x', e * (d - x') - c.double.double.double, (t.y * t.z).double⟩ := by
+  unfold dblStep; split <;> rfl
+
+/-- The implementation's doubling step, its line. -/
+theorem dblStep_snd_eq (pi : PairInput) (t : TwistPoint) :
+    (dblStep pi t).2 = pi.line ((t.x.sqr.double + t.x.sqr) * t.x - t.y.sqr.double)
+      (-((t.x.sqr.double + t.x.sqr) * t.z.sqr)) ((t.y * t.z).double * t.z.sqr) := by
+  unfold dblStep; split <;> rfl
+
+/-- The implementation's addition step, its point: the lets inlined. -/
+theorem addStep_fst_eq (pi : PairInput) (t : TwistPoint) :
+    (addStep pi t).1 =
+      if t.z.isZero then pi.r
+      else if (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).isZero then
+        (if (pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)).isZero then
+          (dblStep pi t).1 else ⟨Fp2.one, Fp2.one, Fp2.zero⟩)
+      else
+        let u1 := t.x * pi.r.z.sqr
+        let s1 := t.y * (pi.r.z * pi.r.z.sqr)
+        let h := pi.r.x * t.z.sqr - u1
+        let n := pi.r.y * (t.z * t.z.sqr) - s1
+        let x' := n.sqr - h.sqr * h - (u1 * h.sqr).double
+        ⟨x', n * (u1 * h.sqr - x') - s1 * (h.sqr * h), h * t.z * pi.r.z⟩ := by
+  unfold addStep
+  dsimp only
+  split_ifs <;> rfl
+
+/-- The implementation's addition step, its line. -/
+theorem addStep_snd_eq (pi : PairInput) (t : TwistPoint) :
+    (addStep pi t).2 = pi.line
+      ((pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)) * pi.r.x -
+        (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr) * t.z * pi.r.y)
+      (-((pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)) * pi.r.z.sqr))
+      ((pi.r.x * t.z.sqr - t.x * pi.r.z.sqr) * t.z * (pi.r.z * pi.r.z.sqr)) := by
+  unfold addStep
+  dsimp only
+  split_ifs <;> rfl
+
 set_option maxHeartbeats 4000000 in
 theorem dblStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
     (ht : t.Canonical) :
@@ -107,20 +155,25 @@ theorem dblStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
       (dblStep pi t).1.toSpec = (Mirror.dblStep pi.toSpec t.toSpec).1 ∧
       (dblStep pi t).2.toSpec = (Mirror.dblStep pi.toSpec t.toSpec).2 := by
   obtain ⟨hx, hy, hz⟩ := ht
-  have hzero := Fp2.zero_canonical
-  unfold dblStep Mirror.dblStep
-  rw [TwistPoint.toSpec_y, Fp2.isZero_eq hy]
-  by_cases h : t.y.isZero = true
-  · simp only [h, if_true]
-    obtain ⟨l1, l2⟩ := PairInput.line_spec hpi (Fp2.neg_canonical hy) hzero Fp2.one_canonical
-    refine ⟨⟨?_, hy, hz⟩, l1, ?_, ?_⟩
-    · exact Fp2.canonical_hNeg (Fp2.double_canonical hx)
-    · simp (config := {maxDischargeDepth := 40}) [hx, hy, hz]
-    · rw [l2]; simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, Fp2.toSpec_one]
-  · simp only [h, Bool.false_eq_true, if_false]
-    refine ⟨?_, ?_, ?_, ?_⟩ <;>
+  have hzz : (TwistPoint.toSpec t).z.isZero = t.z.isZero := by
+    rw [TwistPoint.toSpec_z, Fp2.isZero_eq hz]
+  have hl : (dblStep pi t).2.Canonical ∧
+      (dblStep pi t).2.toSpec = (Mirror.dblStep pi.toSpec t.toSpec).2 := by
+    rw [dblStep_snd_eq, Mirror.dblStep_snd]
+    constructor <;>
     simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hpi, PairInput.line_canonical,
       PairInput.toSpec_line]
+  refine ⟨?_, hl.1, ?_, hl.2⟩
+  · rw [dblStep_fst_eq]
+    by_cases h : t.z.isZero = true
+    · rw [if_pos h]; exact ⟨hx, hy, hz⟩
+    · rw [if_neg h]
+      simp (config := {maxDischargeDepth := 40}) [hx, hy, hz]
+  · rw [dblStep_fst_eq, Mirror.dblStep_fst, hzz]
+    by_cases h : t.z.isZero = true
+    · rw [if_pos h, if_pos h]
+    · rw [if_neg h, if_neg h]
+      simp (config := {maxDischargeDepth := 40}) [hx, hy, hz]
 
 set_option maxHeartbeats 4000000 in
 theorem addStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
@@ -128,26 +181,53 @@ theorem addStep_spec {pi : PairInput} {t : TwistPoint} (hpi : pi.Canonical)
     (addStep pi t).1.Canonical ∧ (addStep pi t).2.Canonical ∧
       (addStep pi t).1.toSpec = (Mirror.addStep pi.toSpec t.toSpec).1 ∧
       (addStep pi t).2.toSpec = (Mirror.addStep pi.toSpec t.toSpec).2 := by
+  have hdbl := dblStep_spec hpi ht
   obtain ⟨hx, hy, hz⟩ := ht
   obtain ⟨⟨hrx, hry, hrz⟩, hcx, hcy, hcz⟩ := hpi
   have hpi' : pi.Canonical := ⟨⟨hrx, hry, hrz⟩, hcx, hcy, hcz⟩
-  have hzero := Fp2.zero_canonical
-  have hdd : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).Canonical := by simp (config := {maxDischargeDepth := 40}) [hx, hz, hrx, hrz]
-  have hde : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).toSpec
-      = pi.r.x.toSpec * (t.z.toSpec * t.z.toSpec) - t.x.toSpec * (pi.r.z.toSpec * pi.r.z.toSpec) := by
+  have hdd : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).Canonical := by
     simp (config := {maxDischargeDepth := 40}) [hx, hz, hrx, hrz]
-  unfold addStep Mirror.addStep
-  simp only [PairInput.toSpec_r, TwistPoint.toSpec_x, TwistPoint.toSpec_y, TwistPoint.toSpec_z]
-  rw [← hde, Fp2.isZero_eq hdd]
-  by_cases h : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).isZero = true
-  · simp only [h, if_true]
-    refine ⟨?_, ?_, ?_, ?_⟩ <;>
-    simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hrx, hry, hrz, hpi', PairInput.line_canonical,
-      PairInput.toSpec_line]
-  · simp only [h, Bool.false_eq_true, if_false]
-    refine ⟨?_, ?_, ?_, ?_⟩ <;>
-    simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hrx, hry, hrz, hpi', PairInput.line_canonical,
-      PairInput.toSpec_line]
+  have hde : (pi.toSpec.r.x * (t.toSpec.z * t.toSpec.z) -
+      t.toSpec.x * (pi.toSpec.r.z * pi.toSpec.r.z)) = (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).toSpec := by
+    simp (config := {maxDischargeDepth := 40}) [hx, hz, hrx, hrz]
+  have hnn : (pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)).Canonical := by
+    simp (config := {maxDischargeDepth := 40}) [hy, hz, hry, hrz]
+  have hne : (pi.toSpec.r.y * (t.toSpec.z * (t.toSpec.z * t.toSpec.z)) -
+      t.toSpec.y * (pi.toSpec.r.z * (pi.toSpec.r.z * pi.toSpec.r.z))) =
+      (pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)).toSpec := by
+    simp (config := {maxDischargeDepth := 40}) [hy, hz, hry, hrz]
+  have hzz : (TwistPoint.toSpec t).z.isZero = t.z.isZero := by
+    rw [TwistPoint.toSpec_z, Fp2.isZero_eq hz]
+  have hl : (addStep pi t).2.Canonical ∧
+      (addStep pi t).2.toSpec = (Mirror.addStep pi.toSpec t.toSpec).2 := by
+    rw [addStep_snd_eq, Mirror.addStep_snd]
+    constructor <;>
+    simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hrx, hry, hrz, hpi',
+      PairInput.line_canonical, PairInput.toSpec_line]
+  refine ⟨?_, hl.1, ?_, hl.2⟩
+  · rw [addStep_fst_eq]
+    by_cases h0 : t.z.isZero = true
+    · rw [if_pos h0]; exact ⟨hrx, hry, hrz⟩
+    · rw [if_neg h0]
+      by_cases h : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).isZero = true
+      · rw [if_pos h]
+        by_cases hn : (pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)).isZero = true
+        · rw [if_pos hn]; exact hdbl.1
+        · rw [if_neg hn]; exact ⟨Fp2.one_canonical, Fp2.one_canonical, Fp2.zero_canonical⟩
+      · rw [if_neg h]
+        simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hrx, hry, hrz]
+  · rw [addStep_fst_eq, Mirror.addStep_fst, hzz, hde, Fp2.isZero_eq hdd, hne, Fp2.isZero_eq hnn]
+    by_cases h0 : t.z.isZero = true
+    · rw [if_pos h0, if_pos h0]; rfl
+    · rw [if_neg h0, if_neg h0]
+      by_cases h : (pi.r.x * t.z.sqr - t.x * pi.r.z.sqr).isZero = true
+      · rw [if_pos h, if_pos h]
+        by_cases hn : (pi.r.y * (t.z * t.z.sqr) - t.y * (pi.r.z * pi.r.z.sqr)).isZero = true
+        · rw [if_pos hn, if_pos hn]; exact hdbl.2.2.1
+        · rw [if_neg hn, if_neg hn]
+          simp [Fp2.toSpec_one, EthLib.Cryptography.Bls.Fp2.one_eq_one]
+      · rw [if_neg h, if_neg h]
+        simp (config := {maxDischargeDepth := 40}) [hx, hy, hz, hrx, hry, hrz]
 
 end simps
 
@@ -173,50 +253,32 @@ theorem mulLine_spec {f : Fp12} {l : Line} (hf : f.Canonical) (hl : l.Canonical)
       (f.mulBy014 l.b0 l.b1 l.b4).toSpec = f.toSpec * l.toSpec.toFp12 :=
   ⟨Fp12.mulBy014_canonical hf hl.1 hl.2.1 hl.2.2, Fp12.toSpec_mulBy014 hf hl.1 hl.2.1 hl.2.2⟩
 
-open Lean Elab Term Meta in
-/-- The value of the constant `c` with the constant `stepName` abstracted into a lambda
-parameter. Used to restate `addAll` over an arbitrary step function without
-re-elaborating its structural recursion, which keeps the term syntactically the same. -/
-elab "abstractStep% " c:ident ", " stepName:ident : term => do
-  let env ← getEnv
-  let cName ← realizeGlobalConstNoOverloadWithInfo c
-  let sName ← realizeGlobalConstNoOverloadWithInfo stepName
-  let some (.defnInfo di) := env.find? cName | throwError "not a definition"
-  let stepTy := (env.find? sName).get!.type
-  withLocalDeclD `step stepTy fun st => do
-    let v := di.value.replace fun e => if e.isConstOf sName then some st else none
-    mkLambdaFVars #[st] v
-
-/-- `dblAll` and `addAll` are one recursion over a step function. Proving
-about this generic form keeps the kernel from unfolding the concrete step
-(whose branch condition is a field product) when it checks the unfolding
-lemmas: `addAll` with `addStep` abstracted, so `addAll = allG addStep` holds
-by syntactic equality after unfolding. -/
-def allG : (PairInput → TwistPoint → TwistPoint × Line) → Fp12 →
-    List (PairInput × TwistPoint) → Fp12 × List (PairInput × TwistPoint) :=
-  abstractStep% addAll, addStep
+/-- `dblAll` and `addAll` are one recursion over a step function. Proving about
+this generic form keeps the kernel from unfolding the concrete step (whose branch
+conditions are field products) when it checks the unfolding lemmas; the two are
+related to it by induction, through their equation lemmas. -/
+def allG (step : PairInput → TwistPoint → TwistPoint × Line) (f : Fp12) :
+    List (PairInput × TwistPoint) → Fp12 × List (PairInput × TwistPoint)
+  | [] => (f, [])
+  | (pi, t) :: rest =>
+    let (t', l) := step pi t
+    let (f', rest') := allG step (f.mulBy014 l.b0 l.b1 l.b4) rest
+    (f', (pi, t') :: rest')
 
 /-- The mirror's counterpart of `allG`. -/
-def mAllG : (Mirror.PairInput → Mirror.TwistPoint → Mirror.TwistPoint × Mirror.Line) →
-    EthLib.Cryptography.Bls.Fp12 → List (Mirror.PairInput × Mirror.TwistPoint) →
-    EthLib.Cryptography.Bls.Fp12 × List (Mirror.PairInput × Mirror.TwistPoint) :=
-  abstractStep% Mirror.addAll, Mirror.addStep
-
-theorem dblAll_eq : dblAll = allG dblStep := by
-  delta dblAll allG
-  rfl
-theorem addAll_eq : addAll = allG addStep := by
-  delta addAll allG
-  rfl
-theorem mirror_dblAll_eq : Mirror.dblAll = mAllG Mirror.dblStep := by
-  delta Mirror.dblAll mAllG
-  rfl
-theorem mirror_addAll_eq : Mirror.addAll = mAllG Mirror.addStep := by
-  delta Mirror.addAll mAllG
-  rfl
+def mAllG (step : Mirror.PairInput → Mirror.TwistPoint → Mirror.TwistPoint × Mirror.Line)
+    (f : EthLib.Cryptography.Bls.Fp12) :
+    List (Mirror.PairInput × Mirror.TwistPoint) →
+      EthLib.Cryptography.Bls.Fp12 × List (Mirror.PairInput × Mirror.TwistPoint)
+  | [] => (f, [])
+  | (pi, t) :: rest =>
+    let (t', l) := step pi t
+    let (f', rest') := mAllG step (f * l.toFp12) rest
+    (f', (pi, t') :: rest')
 
 theorem allG_nil (step : PairInput → TwistPoint → TwistPoint × Line) (f : Fp12) :
-    allG step f [] = (f, []) := rfl
+    allG step f [] = (f, []) := by
+  rw [allG]
 
 theorem allG_cons (step : PairInput → TwistPoint → TwistPoint × Line) (f : Fp12)
     (pi : PairInput) (t : TwistPoint) (rest : List (PairInput × TwistPoint)) :
@@ -224,10 +286,12 @@ theorem allG_cons (step : PairInput → TwistPoint → TwistPoint × Line) (f : 
       match step pi t with
       | (t', l) =>
         match allG step (f.mulBy014 l.b0 l.b1 l.b4) rest with
-        | (f', rest') => (f', (pi, t') :: rest') := rfl
+        | (f', rest') => (f', (pi, t') :: rest') := by
+  rw [allG]
 
 theorem mAllG_nil (step : Mirror.PairInput → Mirror.TwistPoint → Mirror.TwistPoint × Mirror.Line)
-    (f : EthLib.Cryptography.Bls.Fp12) : mAllG step f [] = (f, []) := rfl
+    (f : EthLib.Cryptography.Bls.Fp12) : mAllG step f [] = (f, []) := by
+  rw [mAllG]
 
 theorem mAllG_cons
     (step : Mirror.PairInput → Mirror.TwistPoint → Mirror.TwistPoint × Mirror.Line)
@@ -237,7 +301,40 @@ theorem mAllG_cons
       match step pi t with
       | (t', l) =>
         match mAllG step (f * l.toFp12) rest with
-        | (f', rest') => (f', (pi, t') :: rest') := rfl
+        | (f', rest') => (f', (pi, t') :: rest') := by
+  rw [mAllG]
+
+theorem dblAll_eq : dblAll = allG dblStep := by
+  funext f l
+  induction l generalizing f with
+  | nil => rw [dblAll, allG]
+  | cons x rest ih =>
+    obtain ⟨pi, t⟩ := x
+    simp only [dblAll, allG, ih]
+
+theorem addAll_eq : addAll = allG addStep := by
+  funext f l
+  induction l generalizing f with
+  | nil => rw [addAll, allG]
+  | cons x rest ih =>
+    obtain ⟨pi, t⟩ := x
+    simp only [addAll, allG, ih]
+
+theorem mirror_dblAll_eq : Mirror.dblAll = mAllG Mirror.dblStep := by
+  funext f l
+  induction l generalizing f with
+  | nil => rw [Mirror.dblAll, mAllG]
+  | cons x rest ih =>
+    obtain ⟨pi, t⟩ := x
+    simp only [Mirror.dblAll, mAllG, ih]
+
+theorem mirror_addAll_eq : Mirror.addAll = mAllG Mirror.addStep := by
+  funext f l
+  induction l generalizing f with
+  | nil => rw [Mirror.addAll, mAllG]
+  | cons x rest ih =>
+    obtain ⟨pi, t⟩ := x
+    simp only [Mirror.addAll, mAllG, ih]
 
 theorem allG_spec {step : PairInput → TwistPoint → TwistPoint × Line}
     {mstep : Mirror.PairInput → Mirror.TwistPoint → Mirror.TwistPoint × Mirror.Line}
@@ -388,9 +485,16 @@ theorem word_bit (k : UInt64) (n : Nat) (hn : n < 64) :
 
 /-- `cycPowAbsX` with `decompress6` abstracted, so that its unfolding lemma does not make
 the kernel evaluate the (large) decompression when it reduces the `match` on its result. -/
-def cycPowG : (Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 →
-    Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12) → Fp12 → Fp12 :=
-  abstractStep% cycPowAbsX, decompress6
+def cycPowG (D : Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 → Fp12.C4 →
+    Fp12 × Fp12 × Fp12 × Fp12 × Fp12 × Fp12) (g : Fp12) : Fp12 :=
+  let c16 := csqrN (Fp12.compress g) 16
+  let c48 := csqrN c16 32
+  let c57 := csqrN c48 9
+  let c60 := csqrN c57 3
+  let c62 := csqrN c60 2
+  let c63 := Fp12.csqr c62
+  let (d16, d48, d57, d60, d62, d63) := D c16 c48 c57 c60 c62 c63
+  d63 * d62 * d60 * d57 * d48 * d16
 
 theorem cycPowAbsX_eq_G : cycPowAbsX = cycPowG decompress6 := by
   delta cycPowAbsX cycPowG
