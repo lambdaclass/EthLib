@@ -43,6 +43,12 @@ theorem ofFp_ofNat (n : Nat) : EthLib.Cryptography.Bls.Fp2.ofFp (EthLib.Cryptogr
   · simp [EthLib.Cryptography.Bls.Fp2.natCast_c0]
   · simp [EthLib.Cryptography.Bls.Fp2.natCast_c1]
 
+/-- `ofFp_ofNat` for the spec's generic constants (`BaseField.ofNat` at `Fp`). -/
+theorem ofFp_baseField_ofNat (n : Nat) :
+    EthLib.Cryptography.Bls.Fp2.ofFp
+      (EthLib.Cryptography.BaseField.ofNat n : EthLib.Cryptography.Bls.Fp) = (n : SFp2) := by
+  rw [EthLib.Cryptography.Bls.Fp.baseField_ofNat]; exact ofFp_ofNat n
+
 section fp2simp
 
 variable {a b : Fp2}
@@ -86,7 +92,7 @@ theorem double_spec {p : G2} (hp : Canonical p) :
     all_goals try simp (config := {maxDischargeDepth := 40}) only [toSpec_mk, toSpec_x, toSpec_y, toSpec_z,
       mul_v, add_v, sub_v, neg_v, sqr_v, dbl_v, mul_c, add_c, sub_c, neg_c, sqr_c, dbl_c, hx, hy, hz]
     rw [EthLib.Cryptography.Bls.G2.mk.injEq]
-    simp only [ofFp_ofNat]
+    simp only [ofFp_baseField_ofNat]
     generalize p.x.toSpec = X
     generalize p.y.toSpec = Y
     generalize p.z.toSpec = Z
@@ -111,9 +117,16 @@ theorem add_spec {p q : G2} (hp : Canonical p) (hq : Canonical q) :
       toSpec (add p q) = EthLib.Cryptography.Bls.G2.add (toSpec p) (toSpec q) := by
   obtain ⟨hpx, hpy, hpz⟩ := hp
   obtain ⟨hqx, hqy, hqz⟩ := hq
-  have hsp : (toSpec p).z.isZero = p.z.isZero := (isZero_eq hpz).symm
-  have hsq : (toSpec q).z.isZero = q.z.isZero := (isZero_eq hqz).symm
-  unfold add EthLib.Cryptography.Bls.G2.add
+  have hsp : p.z.toSpec.isZero = p.z.isZero := (isZero_eq hpz).symm
+  have hsq : q.z.toSpec.isZero = q.z.isZero := (isZero_eq hqz).symm
+  -- Read `toSpec p` and `toSpec q` as literals first, so that no `if` condition (nor its
+  -- `Decidable` instance) mentions `toSpec` once the spec's addition is unfolded.
+  have ep : toSpec p = ⟨p.x.toSpec, p.y.toSpec, p.z.toSpec⟩ := rfl
+  have eq' : toSpec q = ⟨q.x.toSpec, q.y.toSpec, q.z.toSpec⟩ := rfl
+  unfold add
+  rw [ep, eq']
+  unfold EthLib.Cryptography.Bls.G2.add
+  dsimp only
   rw [hsp, hsq]
   by_cases hp0 : p.z.isZero = true
   · rw [if_pos hp0, if_pos hp0]
@@ -140,7 +153,7 @@ theorem add_spec {p q : G2} (hp : Canonical p) (hq : Canonical q) :
         neg_c, sqr_c, dbl_c, hpx, hpy, hpz, hqx, hqy, hqz, beq_eq, Fp2.one_canonical,
         Fp2.toSpec_one]
       rw [EthLib.Cryptography.Bls.G2.mk.injEq]
-      simp only [ofFp_ofNat, EthLib.Cryptography.Bls.Fp2.one_def]
+      simp only [ofFp_baseField_ofNat, EthLib.Cryptography.Bls.Fp2.one_def]
       generalize p.x.toSpec = X1
       generalize p.y.toSpec = Y1
       generalize p.z.toSpec = Z1
@@ -160,7 +173,7 @@ theorem add_spec {p q : G2} (hp : Canonical p) (hq : Canonical q) :
         toSpec_z, mul_v, add_v, sub_v, neg_v, sqr_v, dbl_v, mul_c, add_c, sub_c, neg_c, sqr_c,
         dbl_c, hpx, hpy, hpz, hqx, hqy, hqz, beq_eq]
       rw [EthLib.Cryptography.Bls.G2.mk.injEq]
-      simp only [ofFp_ofNat]
+      simp only [ofFp_baseField_ofNat]
       generalize p.x.toSpec = X1
       generalize p.y.toSpec = Y1
       generalize p.z.toSpec = Z1
@@ -175,7 +188,9 @@ theorem generator_spec :
   refine ⟨⟨Fp2.canonical_mk (Fp.ofNat_canonical _) (Fp.ofNat_canonical _),
     Fp2.canonical_mk (Fp.ofNat_canonical _) (Fp.ofNat_canonical _), Fp2.one_canonical⟩, ?_⟩
   simp only [generator, EthLib.Cryptography.Bls.G2.generator, toSpec_mk, Fp2.toSpec_mk,
-    Fp.val_ofNat, Fp2.toSpec_one]
+    Fp.val_ofNat, Fp2.toSpec_one, EthLib.Cryptography.Bls.Fp.baseField_ofNat,
+    EthLib.Cryptography.Bls.G2.generatorX0, EthLib.Cryptography.Bls.G2.generatorX1,
+    EthLib.Cryptography.Bls.G2.generatorY0, EthLib.Cryptography.Bls.G2.generatorY1]
 
 /-- `zero` computes the spec's. -/
 theorem zero_spec : Canonical zero ∧ toSpec zero = EthLib.Cryptography.Bls.G2.zero :=
@@ -185,7 +200,8 @@ theorem zero_spec : Canonical zero ∧ toSpec zero = EthLib.Cryptography.Bls.G2.
 theorem bTwist_spec :
     bTwist.Canonical ∧ bTwist.toSpec = EthLib.Cryptography.Bls.G2.bTwist :=
   ⟨Fp2.canonical_mk (Fp.ofNat_canonical _) (Fp.ofNat_canonical _), by
-    simp only [bTwist, EthLib.Cryptography.Bls.G2.bTwist, Fp2.toSpec_mk, Fp.val_ofNat]⟩
+    simp only [bTwist, EthLib.Cryptography.Bls.G2.bTwist, Fp2.toSpec_mk, Fp.val_ofNat,
+      EthLib.Cryptography.Bls.Fp.baseField_ofNat]⟩
 
 /-- The infinity test agrees. -/
 theorem isInfinity_spec {p : G2} (hp : Canonical p) :
@@ -201,8 +217,9 @@ theorem neg_spec {p : G2} (hp : Canonical p) :
   refine ⟨canonical_mk.mpr ⟨hx, neg_c hy, hz⟩, ?_⟩
   simp only [EthLib.Cryptography.Bls.G2.neg, toSpec_mk, toSpec_x, toSpec_y, toSpec_z, neg_v hy]
 
-theorem spec_inverse_one : EthLib.Cryptography.Bls.Fp2.inverse EthLib.Cryptography.Bls.Fp2.one =
-    EthLib.Cryptography.Bls.Fp2.one := by
+theorem spec_inverse_one :
+    EthLib.Cryptography.Bls.Fp2.inverse (F := EthLib.Cryptography.Bls.Fp)
+      EthLib.Cryptography.Bls.Fp2.one = EthLib.Cryptography.Bls.Fp2.one := by
   rw [EthLib.Cryptography.Bls.Fp2.one_def, EthLib.Cryptography.Bls.Fp2.inverse_eq_inv, inv_one]
 
 /-- `toAffine` computes the spec's, coordinate by coordinate. -/
