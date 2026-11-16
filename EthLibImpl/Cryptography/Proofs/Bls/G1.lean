@@ -1,8 +1,11 @@
+import Batteries.Tactic.OpenPrivate
 import EthLibImpl.Cryptography.Bls.G1
 import EthLibImpl.Cryptography.Proofs.Bls.Fp
 import EthLibImpl.Cryptography.Proofs.Bls.FpInv
 import EthLibImpl.Cryptography.Proofs.Bls.G1Endo
 import EthLib.Cryptography.Proofs.Bls.G1Group
+import EthLib.Cryptography.Proofs.Bls.G1Msm
+import EthLib.Cryptography.Proofs.IdLoops
 
 /-!
 # Proofs: the implementation's `G1` computes the spec's `G1`
@@ -31,10 +34,7 @@ def Canonical (p : G1) : Prop := p.x.Canonical ∧ p.y.Canonical ∧ p.z.Canonic
 def toSpec (p : G1) : SG1 := ⟨p.x.val, p.y.val, p.z.val⟩
 
 theorem isZero_eq {a : Fp} (ha : a.Canonical) : a.isZero = (a.val).isZero := by
-  rw [Bool.eq_iff_iff, Fp.isZero_iff ha]
-  unfold EthLib.Cryptography.Bls.Fp.isZero
-  rw [beq_iff_eq]
-  exact ⟨fun h => congrArg Fin.val h, fun h => Fin.ext h⟩
+  rw [Bool.eq_iff_iff, Fp.isZero_iff ha, EthLib.Cryptography.Bls.Fp.isZero_iff]
 
 theorem beq_eq {a b : Fp} (ha : a.Canonical) (hb : b.Canonical) :
     a.beq b = EthLib.Cryptography.Bls.Fp.beq a.val b.val := by
@@ -110,8 +110,8 @@ theorem double_eq_spec_form (p : G1) : double p =
 theorem double_spec {p : G1} (hp : Canonical p) :
     Canonical (double p) ∧ toSpec (double p) = EthLib.Cryptography.Bls.G1.double (toSpec p) := by
   have hs : (toSpec p).z.isZero = p.z.isZero := (isZero_eq hp.2.2).symm
-  rw [double_eq_spec_form]
-  unfold EthLib.Cryptography.Bls.G1.double
+  rw [double_eq_spec_form, EthLib.Cryptography.Bls.G1.double_eq_doubleSpec]
+  unfold EthLib.Cryptography.Bls.G1.doubleSpec
   rw [hs]
   by_cases h : p.z.isZero = true
   · rw [if_pos h, if_pos h]
@@ -142,14 +142,22 @@ theorem toSpec_zero : toSpec zero = EthLib.Cryptography.Bls.G1.zero := by
   show (⟨Fp.one.val, Fp.one.val, Fp.zero.val⟩ : SG1) = _
   rw [Fp.val_one, Fp.val_zero]; rfl
 
+set_option maxRecDepth 8000 in
 theorem add_spec {p q : G1} (hp : Canonical p) (hq : Canonical q) :
     Canonical (add p q) ∧
       toSpec (add p q) = EthLib.Cryptography.Bls.G1.add (toSpec p) (toSpec q) := by
   obtain ⟨hpx, hpy, hpz⟩ := hp
   obtain ⟨hqx, hqy, hqz⟩ := hq
-  have hsp : (toSpec p).z.isZero = p.z.isZero := (isZero_eq hpz).symm
-  have hsq : (toSpec q).z.isZero = q.z.isZero := (isZero_eq hqz).symm
-  unfold add EthLib.Cryptography.Bls.G1.add
+  have hsp : p.z.val.isZero = p.z.isZero := (isZero_eq hpz).symm
+  have hsq : q.z.val.isZero = q.z.isZero := (isZero_eq hqz).symm
+  -- Read `toSpec p` and `toSpec q` as literals first, so that no `if` condition (nor its
+  -- `Decidable` instance) mentions `toSpec` once the spec's addition is unfolded.
+  have ep : toSpec p = ⟨p.x.val, p.y.val, p.z.val⟩ := rfl
+  have eq' : toSpec q = ⟨q.x.val, q.y.val, q.z.val⟩ := rfl
+  unfold add
+  rw [EthLib.Cryptography.Bls.G1.add_eq_addSpec, ep, eq']
+  unfold EthLib.Cryptography.Bls.G1.addSpec
+  dsimp only
   rw [hsp, hsq]
   by_cases hp0 : p.z.isZero = true
   · rw [if_pos hp0, if_pos hp0]
@@ -175,7 +183,7 @@ theorem add_spec {p q : G1} (hp : Canonical p) (hq : Canonical q) :
       refine ⟨?_, ?_, ?_⟩ <;> apply toZMod.injective <;>
         simp only [toZMod_add, toZMod_sub, toZMod_mul, toZMod_ofNat, toZMod_one] <;> push_cast <;> ring
   · have hq1' : q.z.beq Fp.one = false := by simpa using hq1
-    simp (config := {maxDischargeDepth := 40}) only [hq1', Bool.false_eq_true, if_false, ↓reduceIte, toSpec_mk, toSpec_x, toSpec_y, toSpec_z, mul_v, add_v, sub_v, neg_v, sqr_v,
+    simp (config := {maxDischargeDepth := 40}) only [hq1', Bool.false_eq_true, if_false, toSpec_mk, toSpec_x, toSpec_y, toSpec_z, mul_v, add_v, sub_v, neg_v, sqr_v,
       dbl_v, mul_c, add_c, sub_c, neg_c, sqr_c, dbl_c, hpx, hpy, hpz, hqx, hqy, hqz, beq_eq]
     split_ifs with c1 c2
     · exact double_spec ⟨hpx, hpy, hpz⟩
@@ -193,8 +201,9 @@ theorem add_spec {p q : G1} (hp : Canonical p) (hq : Canonical q) :
 theorem generator_spec :
     Canonical generator ∧ toSpec generator = EthLib.Cryptography.Bls.G1.generator := by
   refine ⟨⟨Fp.ofNat_canonical _, Fp.ofNat_canonical _, Fp.one_canonical⟩, ?_⟩
-  simp only [toSpec, generator, EthLib.Cryptography.Bls.G1.generator, Fp.val_ofNat, Fp.val_one]
-  rfl
+  simp only [toSpec, generator, EthLib.Cryptography.Bls.G1.generator, Fp.val_ofNat, Fp.val_one,
+    EthLib.Cryptography.Bls.Fp.baseField_ofNat, EthLib.Cryptography.Bls.Fp.baseField_one,
+    EthLib.Cryptography.Bls.G1.generatorX, EthLib.Cryptography.Bls.G1.generatorY]
 
 /-- `zero` computes the spec's. -/
 theorem zero_spec : Canonical zero ∧ toSpec zero = EthLib.Cryptography.Bls.G1.zero :=
@@ -202,8 +211,9 @@ theorem zero_spec : Canonical zero ∧ toSpec zero = EthLib.Cryptography.Bls.G1.
 
 /-- The infinity test agrees. -/
 theorem isInfinity_spec {p : G1} (hp : Canonical p) :
-    p.isInfinity = (toSpec p).isInfinity :=
-  isZero_eq hp.2.2
+    p.isInfinity = (toSpec p).isInfinity := by
+  rw [EthLib.Cryptography.Bls.G1.isInfinity, EthLib.Cryptography.Bls.Fp.baseField_isZero, toSpec_z]
+  exact isZero_eq hp.2.2
 
 /-- `neg` computes the spec's. -/
 theorem neg_spec {p : G1} (hp : Canonical p) :
@@ -216,33 +226,36 @@ theorem neg_spec {p : G1} (hp : Canonical p) :
 
 theorem spec_inverse_one : EthLib.Cryptography.Bls.Fp.inverse 1 = 1 := by
   apply toZMod.injective
-  unfold EthLib.Cryptography.Bls.Fp.inverse
-  rw [EthLib.Cryptography.Bls.Fp.powNat_eq_pow, toZMod_pow, toZMod_one, one_pow]
+  rw [EthLib.Cryptography.Bls.Fp.toZMod_inverse, toZMod_one, inv_one]
 
 /-- `toAffine` computes the spec's, coordinate by coordinate. -/
 theorem toAffine_spec {p : G1} (hp : Canonical p) :
     p.toAffine.1.Canonical ∧ p.toAffine.2.Canonical ∧
       (p.toAffine.1.val, p.toAffine.2.val) = (toSpec p).toAffine := by
   obtain ⟨hx, hy, hz⟩ := hp
-  have hs : (toSpec p).z.isZero = p.z.isZero := (isZero_eq hz).symm
+  have ep : toSpec p = ⟨p.x.val, p.y.val, p.z.val⟩ := rfl
+  rw [ep]
   unfold toAffine EthLib.Cryptography.Bls.G1.toAffine
-  rw [hs]
+  simp only [EthLib.Cryptography.Bls.Fp.baseField_isZero, EthLib.Cryptography.Bls.Fp.baseField_zero,
+    EthLib.Cryptography.Bls.Fp.baseField_inverse]
   by_cases h0 : p.z.isZero = true
-  · rw [if_pos h0, if_pos h0]
-    exact ⟨Fp.zero_canonical, Fp.zero_canonical, by rw [Fp.val_zero]; rfl⟩
-  rw [if_neg h0, if_neg h0]
+  · have h0' : p.z.val.isZero = true := (isZero_eq hz) ▸ h0
+    rw [if_pos h0, if_pos h0']
+    exact ⟨Fp.zero_canonical, Fp.zero_canonical, by rw [Fp.val_zero]⟩
+  have h0' : ¬ p.z.val.isZero = true := (isZero_eq hz) ▸ h0
+  rw [if_neg h0, if_neg h0']
   by_cases h1 : p.z.beq Fp.one = true
   · have h1v : p.z.val = 1 := by
       rw [← Fp.val_one]; exact (Fp.beq_iff hz Fp.one_canonical).mp h1
     rw [if_pos h1]
     refine ⟨hx, hy, ?_⟩
-    simp only [toSpec_z, toSpec_x, toSpec_y, h1v, spec_inverse_one, spec_mul_one, spec_one_mul]
+    simp only [h1v, spec_inverse_one, spec_mul_one, spec_one_mul]
   · rw [if_neg h1]
     have hi := Fp.inverse_canonical hz
     have hi2 := sqr_c hi
     have hi3 := mul_c (a := (p.z.inverse).sqr) hi
     refine ⟨mul_c (a := p.x) hi2, mul_c (a := p.y) hi3, ?_⟩
-    simp (config := {maxDischargeDepth := 40}) only [toSpec_z, toSpec_x, toSpec_y, mul_v, sqr_v,
+    simp (config := {maxDischargeDepth := 40}) only [mul_v, sqr_v,
       Fp.val_inverse, hz, hi, hi2, hi3, hx, hy, mul_c, sqr_c]
 
 /-- `mulNat` computes the spec's. -/
@@ -274,7 +287,8 @@ theorem mul_spec {p : G1} (hp : Canonical p) (s : EthLib.Cryptography.Bls.Fr) :
 
 theorem beta_canonical : beta.Canonical := Fp.ofNat_canonical _
 
-theorem val_beta : beta.val = EthLib.Cryptography.Bls.G1.beta := Fp.val_ofNat _
+theorem val_beta : beta.val = (EthLib.Cryptography.Bls.G1.beta : EthLib.Cryptography.Bls.Fp) :=
+  (Fp.val_ofNat _).trans (EthLib.Cryptography.Bls.Fp.baseField_ofNat _).symm
 
 /-- `endo` computes the spec-level endomorphism. -/
 theorem endo_spec {p : G1} (hp : Canonical p) :
@@ -368,9 +382,9 @@ theorem mulAbsX_spec {p : G1} (hp : Canonical p) :
 
 /-! ## `msm`
 
-The implementation's `msm` and the spec's are the same program over two point types. Both are
-restated as one generic function `Msm.msmGen`, parametrised by the point type and its operations
-(`rfl`), and the generic function is shown to commute with `toSpec`, loop by loop.
+The implementation's `msm` is restated as one generic function `Msm.msmGen`, parametrised by
+the point type and its operations, which is shown to commute with `toSpec`, loop by loop. The
+spec's `msm` (`Vector` folds, one task per window) is `msmGen` at the spec's operations.
 -/
 
 theorem forIn_list_sim {α β β' : Type} (l : List α) (inv : β → β' → Prop)
@@ -379,7 +393,7 @@ theorem forIn_list_sim {α β β' : Type} (l : List α) (inv : β → β' → Pr
     ∀ (init : β) (init' : β'), inv init init' →
       inv (forIn (m := Id) l init f) (forIn (m := Id) l init' f') := by
   induction l with
-  | nil => intro init init' h; simpa using h
+  | nil => intro init init' h; exact h
   | cons a l ih =>
     intro init init' h
     obtain ⟨x, x', hx, hx', hxx⟩ := hstep a (List.mem_cons_self) init init' h
@@ -454,14 +468,197 @@ def msmGen (points : Array G) (scalars : Array EthLib.Cryptography.Bls.Fr) : G :
     acc := add acc (windowSum zero add (fill zero add points scalars n k))
   return acc
 
+/-- The implementation's `msm` with its point type and operations abstract: the same source
+text, so instantiating it is the implementation's `msm` verbatim. -/
+def msmInline (points : Array G) (scalars : Array EthLib.Cryptography.Bls.Fr) : G := Id.run do
+  let n := if points.size ≤ scalars.size then points.size else scalars.size
+  if n = 0 then return zero
+  let w := 8
+  let bucketCount := 1 <<< w
+  let mask : Nat := bucketCount - 1
+  let mut maxBits : Nat := 0
+  for j in [:n] do
+    let v := scalars[j]!.val
+    if v ≠ 0 then
+      let bits := v.log2 + 1
+      if bits > maxBits then maxBits := bits
+  if maxBits = 0 then return zero
+  let nWindows := (maxBits + w - 1) / w
+  let mut acc : G := zero
+  for kk in [:nWindows] do
+    let k := nWindows - 1 - kk
+    if k + 1 < nWindows then
+      for _ in [:w] do
+        acc := dbl acc
+    let mut buckets : Array G := Array.replicate bucketCount zero
+    for j in [:n] do
+      let v := (scalars[j]!.val >>> (k * w)) &&& mask
+      if v ≠ 0 then
+        buckets := buckets.set! v (add buckets[v]! points[j]!)
+    let mut running : G := zero
+    let mut partialSum : G := zero
+    for vv in [:bucketCount - 1] do
+      let v := bucketCount - 1 - vv
+      running := add running buckets[v]!
+      partialSum := add partialSum running
+    acc := add acc partialSum
+  return acc
+
+/-- Inlining the loops into one body changes nothing: the generic program is `msmGen`. -/
+theorem msmInline_eq (points : Array G) (scalars : Array EthLib.Cryptography.Bls.Fr) :
+    msmInline zero dbl add points scalars = msmGen zero dbl add points scalars := by
+  unfold msmInline msmGen maxBitsOf fill windowSum
+  simp only [EthLib.Cryptography.IdLoops.id_bind, EthLib.Cryptography.IdLoops.id_pure, Id.run]
+
 end generic
 
+theorem msm_eq_inline (points : Array G1) (scalars : Array EthLib.Cryptography.Bls.Fr) :
+    G1.msm points scalars = msmInline G1.zero G1.double G1.add points scalars := rfl
+
 theorem msm_eq (points : Array G1) (scalars : Array EthLib.Cryptography.Bls.Fr) :
-    G1.msm points scalars = msmGen G1.zero G1.double G1.add points scalars := rfl
+    G1.msm points scalars = msmGen G1.zero G1.double G1.add points scalars :=
+  (msm_eq_inline points scalars).trans (msmInline_eq _ _ _ points scalars)
+
+/-! ### The spec's `msm` is `msmGen` at the spec's operations
+
+The spec's `msm` folds over `Vector`s, and runs each window as a task;
+`G1.msm_eq_msmModel` (upstream) reads the tasks back as a plain fold. Each loop of `msmGen`
+is the matching fold. -/
+
+section spec
+
+open EthLib.Cryptography.Bls.G1 (msmMaxBits msmBuckets msmRunning msmCombine msmWindowStep
+  msmDigits windowVal msmModel msmVecModel msm_eq_msmModel)
+
+local notation "sZero" => (EthLib.Cryptography.Bls.G1.zero : SG1)
+local notation "sDbl" => (EthLib.Cryptography.Bls.G1.double : SG1 → SG1)
+local notation "sAdd" => (EthLib.Cryptography.Bls.G1.add : SG1 → SG1 → SG1)
+
+/-- A `for` loop over `[:n]` in `Id` whose body always continues is a left fold. -/
+theorem forIn_range_eq_foldl {β : Type} (n : Nat) (init : β) (f : Nat → β → Id (ForInStep β))
+    (g : β → Nat → β) (h : ∀ i b, f i b = .yield (g b i)) :
+    forIn (m := Id) [:n] init f = (List.range' 0 n).foldl g init := by
+  have hf : f = fun i b => ForInStep.yield (g b i) := by funext i b; exact h i b
+  subst hf
+  exact EthLib.Cryptography.IdLoops.forIn_range_yield n init (fun i b => g b i)
+
+/-- A fold over `range' 0 n` is a fold over `finRange n`. -/
+theorem foldl_range'_eq_finRange {β : Type} (n : Nat) (g : β → Nat → β) (init : β) :
+    (List.range' 0 n).foldl g init = (List.finRange n).foldl (fun b j => g b j.val) init := by
+  rw [← List.range_eq_range', ← List.map_coe_finRange_eq_range, List.foldl_map]
+
+/-- The bit-length loop is the spec's `msmMaxBits`. -/
+theorem maxBitsOf_eq (scalars : Array EthLib.Cryptography.Bls.Fr) (n : Nat)
+    (hn : n ≤ scalars.size) :
+    maxBitsOf scalars n =
+      msmMaxBits (Vector.ofFn fun j : Fin n =>
+        (scalars[j.val]'(Nat.lt_of_lt_of_le j.isLt hn)).val) := by
+  unfold maxBitsOf
+  simp only [Id.run_bind, Id.run_pure]
+  rw [forIn_range_eq_foldl n 0 _ (fun m j => if scalars[j]!.val ≠ 0 then
+      (if scalars[j]!.val.log2 + 1 > m then scalars[j]!.val.log2 + 1 else m) else m)
+      (fun i b => by split_ifs <;> rfl),
+    foldl_range'_eq_finRange]
+  unfold msmMaxBits
+  refine congrArg (fun g => List.foldl g 0 (List.finRange n))
+    (funext fun m => funext fun j => ?_)
+  rw [Vector.getElem_ofFn, getElem!_pos scalars j.val (by omega)]
+
+/-- The bucket loop of window `k` is the spec's `msmBuckets`, given the points and the digits
+it reads. -/
+theorem fill_eq {n nW : Nat} (points : Array SG1) (scalars : Array EthLib.Cryptography.Bls.Fr)
+    (k : Fin nW) (pts : Vector SG1 n) (hpts : ∀ j (h : j < n), pts[j] = points[j]!)
+    (digits : Vector (Vector (Fin 256) nW) n)
+    (hdig : ∀ j (h : j < n),
+      (digits[j][k.val]).val = (scalars[j]!.val >>> (k.val * 8) &&& 1 <<< 8 - 1)) :
+    fill sZero sAdd points scalars n k.val = (msmBuckets pts digits k).toArray := by
+  unfold fill
+  simp only [Id.run_bind, Id.run_pure]
+  have hrep : Array.replicate (1 <<< 8) sZero = (Vector.replicate 256 sZero).toArray := by
+    rw [Vector.toArray_replicate]; rfl
+  rw [forIn_range_eq_foldl n _ _ (fun bs j =>
+      if (scalars[j]!.val >>> (k.val * 8) &&& 1 <<< 8 - 1) ≠ 0 then
+        bs.set! (scalars[j]!.val >>> (k.val * 8) &&& 1 <<< 8 - 1)
+          (sAdd bs[scalars[j]!.val >>> (k.val * 8) &&& 1 <<< 8 - 1]! points[j]!)
+      else bs)
+      (fun i b => by split_ifs <;> rfl),
+    foldl_range'_eq_finRange, msmBuckets, hrep]
+  refine List.foldl_hom Vector.toArray (fun V j => ?_)
+  dsimp only
+  rw [← hdig j.val j.isLt, ← hpts j.val j.isLt]
+  split_ifs with h
+  · rw [Vector.toArray_set, Array.set!_eq_setIfInBounds, Array.setIfInBounds_def,
+      dite_eq_left (by simp), getElem!_pos V.toArray _ (by simp), Vector.getElem_toArray]
+  · rfl
+
+/-- The running-sum loop is the spec's `msmRunning`. The loop's state is
+`(running, partialSum)`, the spec's `⟨partialSum, running⟩`. -/
+theorem windowSum_eq (bs : Vector SG1 256) :
+    windowSum sZero sAdd bs.toArray = (msmRunning bs).1 := by
+  unfold windowSum
+  simp only [Id.run_bind, Id.run_pure]
+  rw [show (1 <<< 8 - 1 : Nat) = 255 from rfl, forIn_range_eq_foldl _ _ _ (fun r vv =>
+      (sAdd r.1 bs.toArray[255 - vv]!, sAdd r.2 (sAdd r.1 bs.toArray[255 - vv]!))) ?h,
+    foldl_range'_eq_finRange, msmRunning]
+  case h => intro i b; rfl
+  have key := List.foldl_hom (l := List.finRange 255) (init := (⟨sZero, sZero⟩ : MProd SG1 SG1))
+    (fun m : MProd SG1 SG1 => (m.2, m.1))
+    (g₁ := fun rp vv => ⟨sAdd rp.1 (sAdd rp.2 bs[255 - vv.val]), sAdd rp.2 bs[255 - vv.val]⟩)
+    (g₂ := fun r (vv : Fin 255) =>
+      (sAdd r.1 bs.toArray[255 - vv.val]!, sAdd r.2 (sAdd r.1 bs.toArray[255 - vv.val]!)))
+    (fun m vv => by
+      rw [getElem!_pos bs.toArray _ (by simp; omega), Vector.getElem_toArray])
+  dsimp only at key ⊢
+  rw [Id.run, key]
+
+/-- `msmGen` at the spec's operations is the spec's `msm`. -/
+theorem msmGen_eq_msm (points : Array SG1) (scalars : Array EthLib.Cryptography.Bls.Fr) :
+    msmGen sZero sDbl sAdd points scalars = EthLib.Cryptography.Bls.G1.msm points scalars := by
+  rw [msm_eq_msmModel]
+  unfold msmGen msmModel msmVecModel
+  have hn : (if points.size ≤ scalars.size then points.size else scalars.size) =
+      min points.size scalars.size := Nat.min_def.symm
+  dsimp only
+  rw [hn, maxBitsOf_eq scalars _ (Nat.min_le_right _ _)]
+  generalize hvals : (Vector.ofFn fun j : Fin (min points.size scalars.size) =>
+      (scalars[j.val]'(Nat.lt_of_lt_of_le j.isLt (Nat.min_le_right _ _))).val) = vals
+  by_cases h0 : min points.size scalars.size = 0
+  · rw [if_pos h0, if_pos h0]; rfl
+  rw [if_neg h0, if_neg h0]
+  by_cases hm : msmMaxBits vals = 0
+  · rw [if_pos hm, if_pos hm]; rfl
+  rw [if_neg hm, if_neg hm]
+  generalize (msmMaxBits vals + 8 - 1) / 8 = nW
+  simp only [Id.run_bind, Id.run_pure]
+  rw [forIn_range_eq_foldl _ _ _ (fun acc kk => msmCombine nW acc kk
+      (windowSum sZero sAdd (fill sZero sAdd points scalars (min points.size scalars.size)
+        (nW - 1 - kk)))) ?h, foldl_range'_eq_finRange]
+  case h =>
+    intro i b
+    simp only [msmCombine]
+    split_ifs with hc
+    · rw [forIn_range_eq_foldl 8 b _ (fun a _ => sDbl a) ?h2]
+      · rfl
+      · intro _ _; rfl
+    · rfl
+  refine congrArg (fun g => List.foldl g sZero (List.finRange nW))
+    (funext fun acc => funext fun kk => ?_)
+  rw [msmWindowStep, show nW - 1 - kk.val = kk.rev.val by rw [Fin.val_rev]; omega,
+    fill_eq points scalars kk.rev _ ?hpts _ ?hdig, windowSum_eq]
+  case hpts =>
+    intro j h
+    rw [Vector.getElem_ofFn, getElem!_pos points j (by omega)]
+  case hdig =>
+    intro j h
+    subst hvals
+    simp only [Vector.getElem_map, Vector.getElem_ofFn, msmDigits, windowVal,
+      getElem!_pos scalars j (by omega)]
 
 theorem spec_msm_eq (points : Array SG1) (scalars : Array EthLib.Cryptography.Bls.Fr) :
-    EthLib.Cryptography.Bls.G1.msm points scalars =
-      msmGen EthLib.Cryptography.Bls.G1.zero EthLib.Cryptography.Bls.G1.double EthLib.Cryptography.Bls.G1.add points scalars := rfl
+    EthLib.Cryptography.Bls.G1.msm points scalars = msmGen sZero sDbl sAdd points scalars :=
+  (msmGen_eq_msm points scalars).symm
+
+end spec
 
 /-- Related bucket arrays: 256 canonical points and their images. -/
 def BRel (bs : Array G1) (bs' : Array SG1) : Prop :=
@@ -519,24 +716,23 @@ theorem windowSum_sim {bs : Array G1} {bs' : Array SG1} (h : BRel bs bs') :
       EthLib.Cryptography.Bls.G1.add bs') := by
   obtain ⟨hs, rfl, hc⟩ := h
   unfold windowSum
-  simp only [Id.run, bind, pure]
-  have := forIn_range_sim (fun (a : MProd G1 G1) (b : MProd SG1 SG1) => PRel a.fst b.fst ∧ PRel a.snd b.snd)
-    (1 <<< 8 - 1) (fun vv r => ForInStep.yield ⟨G1.add r.fst (G1.add r.snd bs[1 <<< 8 - 1 - vv]!), G1.add r.snd bs[1 <<< 8 - 1 - vv]!⟩) (fun vv r => ForInStep.yield ⟨EthLib.Cryptography.Bls.G1.add r.fst (EthLib.Cryptography.Bls.G1.add r.snd (bs.map toSpec)[1 <<< 8 - 1 - vv]!), EthLib.Cryptography.Bls.G1.add r.snd (bs.map toSpec)[1 <<< 8 - 1 - vv]!⟩) ?_ ⟨G1.zero, G1.zero⟩ ⟨EthLib.Cryptography.Bls.G1.zero, EthLib.Cryptography.Bls.G1.zero⟩ ⟨⟨zero_canonical, toSpec_zero⟩, ⟨zero_canonical, toSpec_zero⟩⟩
-  · exact this.1
-  · intro vv hvv b b' hb
-    obtain ⟨⟨hb1c, hb1⟩, ⟨hb2c, hb2⟩⟩ := hb
-    have hi : 1 <<< 8 - 1 - vv < bs.size := by rw [hs]; omega
-    have hcv : Canonical bs[1 <<< 8 - 1 - vv]! := by
-      rw [getElem!_pos bs _ hi]; exact hc _ (Array.getElem_mem hi)
-    beta_reduce
-    rw [map_getElem! bs hi]
-    obtain ⟨hr, hrs⟩ := add_spec hb2c hcv
-    obtain ⟨hp, hps⟩ := add_spec hb1c hr
-    refine ⟨_, _, rfl, rfl, ⟨hp, ?_⟩, ⟨hr, ?_⟩⟩
-    · show toSpec _ = _
-      rw [hps, hrs, hb1, hb2]
-    · show toSpec _ = _
-      rw [hrs, hb2]
+  simp only [Id.run_bind, Id.run_pure]
+  -- The loop's state is `(running, partialSum)`.
+  refine And.right (forIn_range_sim (β := G1 × G1) (β' := SG1 × SG1)
+    (fun a b => PRel a.1 b.1 ∧ PRel a.2 b.2) _ _ _ ?_ _ _
+    ⟨⟨zero_canonical, toSpec_zero⟩, ⟨zero_canonical, toSpec_zero⟩⟩)
+  intro vv hvv b b' hb
+  obtain ⟨⟨hb1c, hb1⟩, ⟨hb2c, hb2⟩⟩ := hb
+  have hi : 1 <<< 8 - 1 - vv < bs.size := by rw [hs]; omega
+  have hcv : Canonical bs[1 <<< 8 - 1 - vv]! := by
+    rw [getElem!_pos bs _ hi]; exact hc _ (Array.getElem_mem hi)
+  obtain ⟨hr, hrs⟩ := add_spec hb1c hcv
+  obtain ⟨hp, hps⟩ := add_spec hb2c hr
+  refine ⟨_, _, rfl, rfl, ⟨hr, ?_⟩, ⟨hp, ?_⟩⟩
+  · show toSpec _ = _
+    rw [hrs, hb1, map_getElem! bs hi]
+  · show toSpec _ = _
+    rw [hps, hrs, hb1, hb2, map_getElem! bs hi]
 
 theorem msmGen_sim (P : Array G1) (hP : ∀ x ∈ P, Canonical x)
     (scalars : Array EthLib.Cryptography.Bls.Fr) :
@@ -557,7 +753,6 @@ theorem msmGen_sim (P : Array G1) (hP : ∀ x ∈ P, Canonical x)
   rw [if_neg hm0, if_neg hm0]
   refine forIn_range_sim PRel _ _ _ ?_ _ _ ⟨zero_canonical, toSpec_zero⟩
   intro kk hkk b b' hb
-  beta_reduce
   have hw := windowSum_sim (fill_sim P hP scalars n ((mb + 8 - 1) / 8 - 1 - kk) hnle)
   split_ifs with hcond
   · have hd : PRel (forIn (m := Id) [:8] b fun _ r => ForInStep.yield r.double) 
