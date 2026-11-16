@@ -96,42 +96,46 @@ def PairInput.line (pi : PairInput) (b0 b1 b4 : Fp2) : Line :=
 
 /-- The implementation's `dblStep`. -/
 def dblStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
-  if t.y.isZero then
-    (⟨-(t.x + t.x), t.y, t.z⟩, pi.line (-t.y) Fp2.zero Fp2.one)
+  let a := t.x * t.x
+  let b := t.y * t.y
+  let e := (a + a) + a
+  let zz := t.z * t.z
+  let z' := t.y * t.z + t.y * t.z
+  let line := pi.line (e * t.x - (b + b)) (-(e * zz)) (z' * zz)
+  if t.z.isZero then (t, line)
   else
-    let a := t.x * t.x
-    let b := t.y * t.y
     let c := b * b
     let d := ((t.x + b) * (t.x + b) - a - c) + ((t.x + b) * (t.x + b) - a - c)
-    let e := (a + a) + a
     let x' := e * e - (d + d)
     let y' := e * (d - x') - (((c + c) + (c + c)) + ((c + c) + (c + c)))
-    let z' := t.y * t.z + t.y * t.z
-    let zz := t.z * t.z
-    (⟨x', y', z'⟩, pi.line (e * t.x - (b + b)) (-(e * zz)) (z' * zz))
+    (⟨x', y', z'⟩, line)
 
 /-- The implementation's `addStep`. -/
 def addStep (pi : PairInput) (t : TwistPoint) : TwistPoint × Line :=
   let r := pi.r
   let z1z1 := t.z * t.z
   let z2z2 := r.z * r.z
+  let z2z2z2 := r.z * z2z2
   let u1 := t.x * z2z2
   let u2 := r.x * z1z1
-  let s1 := t.y * (r.z * z2z2)
+  let s1 := t.y * z2z2z2
   let s2 := r.y * (t.z * z1z1)
   let h := u2 - u1
-  let zz := t.z * r.z
-  if h.isZero then
-    (⟨-(u1 + u2), -s1, zz⟩, pi.line (-t.y) Fp2.zero (t.z * z1z1))
+  let n := s2 - s1
+  let hz := h * t.z
+  let line := pi.line (n * r.x - hz * r.y) (-(n * z2z2)) (hz * z2z2z2)
+  if t.z.isZero then (r, line)
+  else if h.isZero then
+    if n.isZero then ((dblStep pi t).1, line)
+    else (⟨Fp2.one, Fp2.one, Fp2.zero⟩, line)
   else
-    let n := s2 - s1
     let hh := h * h
     let hhh := hh * h
     let v := u1 * hh
     let x' := n * n - hhh - (v + v)
     let y' := n * (v - x') - s1 * hhh
-    let z' := zz * h
-    (⟨x', y', z'⟩, pi.line (n * t.x - r.z * h * t.y) (-(n * z1z1)) (z' * z1z1))
+    let z' := hz * r.z
+    (⟨x', y', z'⟩, line)
 
 def dblAll (f : Fp12) : List (PairInput × TwistPoint) → Fp12 × List (PairInput × TwistPoint)
   | [] => (f, [])
