@@ -5,23 +5,31 @@ import EthLibImpl.Cryptography.Proofs.Bls.MirrorHash
 import EthLibImpl.Cryptography.Proofs.Bls.HashMath
 import EthLib.Cryptography.Proofs.IdLoops
 import EthLibImpl.Cryptography.Proofs.Bls.Sha256Fast
+import EthLib.Cryptography.Proofs.Hash.Sha256
 
 /-!
 # Proofs: the implementation's hash-to-curve computes the spec's
 
 `EthLibImpl.Cryptography.Bls.HashToCurve` against the spec-level mirror
-`Mirror.HashToCurve` (and through `Mirror.HashToCurve.hashToG2_eq`, the spec's
-`HashToCurve.hashToG2`). The constants and the functions that name the spec's private
+`Mirror.HashToCurve` (and through `Mirror.HashToCurve.hashToG2_rel`, the spec's
+`HashToCurve.hashToG2`). The constants and the functions that name the spec's hash-to-curve
 definitions live in `EthLibImpl.Cryptography.Bls.HashConst`; everything else is in
 `EthLibImpl.Cryptography.Bls.HashToCurve`. `hashToG2_spec` is the main result.
+
+* `expandMessageXmdFast_eq`: the implementation's `expand_message_xmd` reads the previous block
+  back from its array, where the spec's loop carries it (`xmd_loop`).
+* `hashToFieldFp2_spec`: the implementation's loop returns the array of the spec's vector.
 
 Kernel notes. The implementation's `Fp2.sqrt` is a big computation, so the kernel must never be
 asked to compare two differently shaped terms that match on it. `swuG` therefore reuses the
 implementation's own matcher and panic term, so that `simpleSwuWith = swuG ...` holds by `rfl`,
-and the proofs then run on the parametrised version.
+and the proofs then run on the parametrised version. The mirror's `hashToG2` is parametrised the
+same way (`Mirror.HashToCurve.hashToG2With`, from `HashMath`).
 -/
 
 set_option linter.unusedSimpArgs false
+-- The matchers are named on purpose: reusing them makes the parametrised definitions `rfl`.
+set_option linter.auxLemma false
 
 namespace EthLibImpl.Cryptography.Bls.HashToCurve
 open EthLib.Cryptography
@@ -36,15 +44,8 @@ theorem foldl_size_preserved {F : ByteArray → Nat → ByteArray}
 theorem size_set' (a : ByteArray) (i : Nat) (v : UInt8) : (a.set! i v).size = a.size := by
   cases a; simp [ByteArray.set!, ByteArray.size]
 
-theorem sha256_size (m : ByteArray) : (Bls.Sha256.hash m).size = 32 := by
-  unfold Bls.Sha256.hash
-  simp only [Id.run, bind, pure]
-  rw [IdLoops.forIn_range_yield]
-  refine (foldl_size_preserved (fun acc j => by simp only [size_set']) _ _).trans ?_
-  show (Array.replicate 32 (0:UInt8)).size = 32
-  simp
-
-open private sha256OutputSize i2osp strxor from EthLib.Cryptography.Bls.HashToCurve
+open EthLib.Cryptography.Bls.HashToCurve (sha256OutputSize sha256BlockSize i2osp strxor
+  oversizeDstPrefix)
 
 theorem forIn_push_list {ε : Type} (g : Nat → Array ByteArray → ByteArray) (l : List Nat)
     (init : Array ByteArray) :
@@ -53,77 +54,6 @@ theorem forIn_push_list {ε : Type} (g : Nat → Array ByteArray → ByteArray) 
   induction l generalizing init with
   | nil => rfl
   | cons a l ih => rw [List.forIn_cons, List.foldl_cons]; exact ih _
-
-theorem foldl_push_facts (g : Nat → Array ByteArray → ByteArray)
-    (hg : ∀ i r, (g i r).size = 32) (l : List Nat) (init : Array ByteArray)
-    (hi : ∀ x ∈ init, x.size = 32) :
-    (l.foldl (fun r i => r.push (g i r)) init).size = init.size + l.length ∧
-      ∀ x ∈ l.foldl (fun r i => r.push (g i r)) init, x.size = 32 := by
-  induction l generalizing init with
-  | nil => exact ⟨rfl, hi⟩
-  | cons a l ih =>
-    rw [List.foldl_cons]
-    have hi' : ∀ x ∈ init.push (g a init), x.size = 32 := by
-      intro x hx
-      rw [Array.mem_push] at hx
-      rcases hx with hx | hx
-      · exact hi x hx
-      · rw [hx]; exact hg _ _
-    obtain ⟨h1, h2⟩ := ih _ hi'
-    refine ⟨?_, h2⟩
-    rw [h1]; simp; omega
-
-theorem foldl_append_size (v : List ByteArray) (hv : ∀ x ∈ v, x.size = 32) (acc : ByteArray) :
-    (v.foldl (fun x1 x2 => x1 ++ x2) acc).size = acc.size + 32 * v.length := by
-  induction v generalizing acc with
-  | nil => simp
-  | cons a l ih =>
-    rw [List.foldl_cons, ih (fun x hx => hv x (List.mem_cons_of_mem _ hx))]
-    rw [ByteArray.size_append, hv a (List.mem_cons_self)]
-    simp; omega
-
-theorem expand_size (msg dst : ByteArray) (n : Nat) (u : ByteArray)
-    (h : Bls.HashToCurve.expandMessageXmd msg dst n = .ok u) : u.size = n := by
-  have h32 : sha256OutputSize = 32 := rfl
-  unfold Bls.HashToCurve.expandMessageXmd at h
-  simp only [bind, Except.bind, pure, Except.pure, h32] at h
-  have key : ∀ (ell : Nat) (init : Array ByteArray) (g : Nat → Array ByteArray → ByteArray)
-      (hg : ∀ i r, (g i r).size = 32) (hi : ∀ x ∈ init, x.size = 32) (hs : init.size = 1)
-      (v : Array ByteArray)
-      (hf : forIn (m := Except EthLib.Cryptography.Bls.BlsError) [2:ell+1] init
-          (fun i r => Except.ok (ForInStep.yield (r.push (g i r)))) = Except.ok v)
-      (hn : n ≤ 32 * ell),
-      ((Array.foldl (fun x1 x2 => x1 ++ x2) ByteArray.empty v).extract 0 n).size = n := by
-    intro ell init g hg hi hs v hf hn
-    rw [Std.Legacy.Range.forIn_eq_forIn_range', forIn_push_list] at hf
-    obtain ⟨hs1, hs2⟩ := foldl_push_facts g hg
-      (List.range' [2:ell + 1].start [2:ell + 1].size [2:ell + 1].step) init hi
-    have hv : List.foldl (fun r i => r.push (g i r)) init
-        (List.range' [2:ell + 1].start [2:ell + 1].size [2:ell + 1].step) = v := Except.ok.inj hf
-    rw [hv] at hs1 hs2
-
-    rw [ByteArray.size_extract]
-    have hsz : (Array.foldl (fun x1 x2 => x1 ++ x2) ByteArray.empty v).size = 32 * v.size := by
-      rw [← Array.foldl_toList, foldl_append_size _ (fun x hx => hs2 x (Array.mem_toList_iff.mp hx))]
-      simp
-    rw [hsz]
-    simp only [List.length_range', Std.Legacy.Range.size] at hs1
-    omega
-  have h1 : ¬ n > 65535 := fun hc => by rw [if_pos hc] at h; cases h
-  have h2 : ¬ (n + 32 - 1) / 32 > 255 := fun hc => by rw [if_neg h1, if_pos hc] at h; cases h
-  rw [if_neg h1, if_neg h2] at h
-  split at h
-  · cases h
-  · rename_i v hf
-    injection h with h
-    rw [← h]
-    refine key _ _ _ ?_ ?_ ?_ v hf ?_
-    · intro i r; exact sha256_size _
-    · intro x hx
-      simp at hx
-      rw [hx]; exact sha256_size _
-    · simp
-    · omega
 
 theorem forIn_list_sim_idx {ε β β' : Type} (inv : Nat → β → β' → Prop)
     (f : Nat → β → Except ε (ForInStep β)) (f' : Nat → β' → Except ε (ForInStep β'))
@@ -157,7 +87,7 @@ theorem forIn_range_sim_idx {ε β β' : Type} (inv : Nat → β → β' → Pro
   have := forIn_list_sim_idx inv f f' n hstep n 0 (by omega) init init' h0
   simpa [Std.Legacy.Range.size] using this
 
-
+theorem sha256_size (m : ByteArray) : (Hash.Sha256.hash m).size = 32 := Hash.Sha256.hash_size m
 
 theorem i2osp_data (n len : Nat) : (i2osp n len).data =
     Array.ofFn (n := len) fun i => UInt8.ofNat ((n >>> ((len - 1 - i.val) * 8)) &&& 0xff) := rfl
@@ -193,13 +123,9 @@ theorem append_i2osp2 (X : ByteArray) (n : Nat) :
 
 theorem ofFn_succ_cons {α} (n : Nat) (g : Fin (n + 1) → α) :
     Array.ofFn g = #[g 0] ++ Array.ofFn (fun i : Fin n => g i.succ) := by
-  apply Array.ext
-  · simp; omega
-  · intro k h1 h2
-    simp only [Array.getElem_ofFn, Array.getElem_append]
-    match k with
-    | 0 => simp
-    | k + 1 => simp
+  apply Array.toList_inj.mp
+  rw [Array.toList_ofFn, Array.toList_append, Array.toList_ofFn, List.ofFn_succ]
+  rfl
 
 theorem xorGo_data (a b : ByteArray) (f : Nat) : ∀ (j : Nat) (acc : ByteArray),
     (FastXmd.xorGo a b j f acc).data =
@@ -213,31 +139,144 @@ theorem xorGo_data (a b : ByteArray) (f : Nat) : ∀ (j : Nat) (acc : ByteArray)
 
 theorem ewc_eq (c : Nat) : ByteArray.emptyWithCapacity c = ByteArray.empty := rfl
 
-theorem xorGo_strxor (a b : ByteArray) :
+/-- On equal sizes, `xorGo` is the spec's `strxor`. -/
+theorem xorGo_strxor (a b : ByteArray) (h : a.size = b.size) :
     FastXmd.xorGo a b 0 a.size ByteArray.empty = strxor a b := by
   apply ByteArray.ext
   rw [xorGo_data]
-  show (#[] : Array UInt8) ++ _ = _
-  simp [strxor]
+  apply Array.ext
+  · have hs : a.data.size = b.data.size := h
+    simp only [Array.size_append, Array.size_ofFn, strxor, Array.size_zipWith]
+    rw [← hs, Nat.min_self, show ByteArray.empty.data.size = 0 from rfl, Nat.zero_add]
+    rfl
+  · intro i h1 h2
+    have ha : i < a.size := by simpa using h1
+    have hb : i < b.size := h ▸ ha
+    simp [strxor, Array.getElem_ofFn, getElem!_pos b i hb]
+    rfl
 
-/-- The implementation's `expand_message_xmd` (over `Sha256Fast`) computes the spec's. -/
+
+/-- The spec's block loop, which carries the previous block, against the implementation's,
+which reads it back from the array. -/
+theorem xmd_loop (b0 dp : ByteArray) (hb0 : b0.size = 32) (l : List Nat) :
+    ∀ (bs : Array ByteArray) (prev : ByteArray), bs[bs.size - 1]! = prev → prev.size = 32 →
+    (l.foldl (fun b a =>
+        (b.1.push (Hash.Sha256.hash ((strxor b0 b.2).push (UInt8.ofNat (a &&& 255)) ++ dp)),
+          Hash.Sha256.hash ((strxor b0 b.2).push (UInt8.ofNat (a &&& 255)) ++ dp))) (bs, prev)).1 =
+      l.foldl (fun b a => b.push (Hash.Sha256.hash
+        ((FastXmd.xorGo b0 b[b.size - 1]! 0 b0.size ByteArray.empty).push (UInt8.ofNat (a &&& 255))
+          ++ dp))) bs := by
+  induction l with
+  | nil => intro bs prev _ _; rfl
+  | cons i l ih =>
+    intro bs prev hp hps
+    rw [List.foldl_cons, List.foldl_cons, hp, xorGo_strxor b0 prev (hb0.trans hps.symm)]
+    exact ih _ _ (by simp) (sha256_size _)
+
 theorem expandMessageXmdFast_eq (msg dst : ByteArray) (n : Nat) :
     FastXmd.expandMessageXmdFast msg dst n = Bls.HashToCurve.expandMessageXmd msg dst n := by
+  have e1 : FastXmd.sha256OutputSize = 32 := rfl
+  have e1' : sha256OutputSize = 32 := rfl
+  have e2 : FastXmd.sha256BlockSize = sha256BlockSize := rfl
+  have e3 : FastXmd.oversizeDstPrefix = oversizeDstPrefix := rfl
+  have u0 : UInt8.ofNat 0 = 0 := rfl
+  have u1' : UInt8.ofNat (1 &&& 255) = 1 := rfl
   unfold FastXmd.expandMessageXmdFast Bls.HashToCurve.expandMessageXmd
-  simp only [Sha256Fast.hash_eq, append_i2osp1, append_i2osp2, xorGo_strxor, ewc_eq,
-    ByteArray.empty_append, Nat.zero_and]
-  rfl
+  simp only [Sha256Fast.hash_eq, e1, e1', e2, e3, ewc_eq, ByteArray.empty_append, append_i2osp1,
+    append_i2osp2, Nat.zero_and, u0, u1']
+  by_cases h1 : n > 65535
+  · simp only [h1, ↓reduceIte]
+    rfl
+  by_cases h2 : (n + 32 - 1) / 32 > 255
+  · simp only [h1, h2, ↓reduceIte]
+    rfl
+  simp only [h1, h2, ↓reduceIte]
+  rw [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.forIn_eq_forIn_range']
+  simp only [List.forIn_pure_yield_eq_foldl, pure_bind]
+  rw [xmd_loop _ _ (sha256_size _) _ _ _ (by simp) (sha256_size _)]
+
+theorem foldl_push_facts (g : Nat → Array ByteArray → ByteArray)
+    (hg : ∀ i r, (g i r).size = 32) (l : List Nat) (init : Array ByteArray)
+    (hi : ∀ x ∈ init, x.size = 32) :
+    (l.foldl (fun r i => r.push (g i r)) init).size = init.size + l.length ∧
+      ∀ x ∈ l.foldl (fun r i => r.push (g i r)) init, x.size = 32 := by
+  induction l generalizing init with
+  | nil => exact ⟨rfl, hi⟩
+  | cons a l ih =>
+    rw [List.foldl_cons]
+    have hi' : ∀ x ∈ init.push (g a init), x.size = 32 := by
+      intro x hx
+      rw [Array.mem_push] at hx
+      rcases hx with hx | hx
+      · exact hi x hx
+      · rw [hx]; exact hg _ _
+    obtain ⟨h1, h2⟩ := ih _ hi'
+    refine ⟨?_, h2⟩
+    rw [h1]; simp; omega
+
+theorem foldl_append_size (v : List ByteArray) (hv : ∀ x ∈ v, x.size = 32) (acc : ByteArray) :
+    (v.foldl (fun x1 x2 => x1 ++ x2) acc).size = acc.size + 32 * v.length := by
+  induction v generalizing acc with
+  | nil => simp
+  | cons a l ih =>
+    rw [List.foldl_cons, ih (fun x hx => hv x (List.mem_cons_of_mem _ hx))]
+    rw [ByteArray.size_append, hv a (List.mem_cons_self)]
+    simp; omega
+
+/-- The implementation's blocks, concatenated and cut to `n ≤ 32·(k + 1)` bytes, have `n`
+bytes. -/
+theorem blocks_size (g : Nat → Array ByteArray → ByteArray) (hg : ∀ i r, (g i r).size = 32)
+    (B1 : ByteArray) (hB1 : B1.size = 32) (c ell k n : Nat) (hn : n ≤ 32 * (k + 1)) :
+    ((Array.foldl (fun x1 x2 => x1 ++ x2) (ByteArray.emptyWithCapacity c)
+      ((List.range' 2 k).foldl (fun r i => r.push (g i r)) ((Array.mkEmpty ell).push B1))).extract
+        0 n).size = n := by
+  have hi : ∀ x ∈ (Array.mkEmpty ell).push B1, x.size = 32 := by
+    intro x hx
+    simp only [Array.mkEmpty_eq, List.push_toArray, List.nil_append, List.mem_toArray,
+      List.mem_singleton] at hx
+    rw [hx]; exact hB1
+  obtain ⟨hs1, hs2⟩ := foldl_push_facts g hg (List.range' 2 k) _ hi
+  generalize (List.range' 2 k).foldl (fun r i => r.push (g i r)) ((Array.mkEmpty ell).push B1) = v
+    at hs1 hs2
+  rw [ByteArray.size_extract, ← Array.foldl_toList,
+    foldl_append_size _ (fun x hx => hs2 x (Array.mem_toList_iff.mp hx))]
+  simp only [Array.mkEmpty_eq, List.push_toArray, List.nil_append, List.size_toArray,
+    List.length_cons, List.length_nil, List.length_range'] at hs1
+  rw [Array.length_toList, hs1, show (ByteArray.emptyWithCapacity c).size = 0 from rfl]
+  omega
+
+/-- The spec's `expand_message_xmd` returns as many bytes as asked for. -/
+theorem expand_size (msg dst : ByteArray) (n : Nat) (u : ByteArray)
+    (h : Bls.HashToCurve.expandMessageXmd msg dst n = .ok u) : u.size = n := by
+  rw [← expandMessageXmdFast_eq] at h
+  have e1 : FastXmd.sha256OutputSize = 32 := rfl
+  unfold FastXmd.expandMessageXmdFast at h
+  simp only [e1, Sha256Fast.hash_eq] at h
+  by_cases h1 : n > 65535
+  · simp only [h1, ↓reduceIte] at h; cases h
+  by_cases h2 : (n + 32 - 1) / 32 > 255
+  · simp only [h1, h2, ↓reduceIte] at h; cases h
+  simp only [h1, h2, ↓reduceIte] at h
+  rw [Std.Legacy.Range.forIn_eq_forIn_range'] at h
+  simp only [List.forIn_pure_yield_eq_foldl, pure_bind] at h
+  injection h with h
+  rw [← h]
+  refine blocks_size _ (fun _ _ => sha256_size _) _ (sha256_size _) _ _ _ _ ?_
+  simp only [Std.Legacy.Range.size]
+  omega
 
 end EthLibImpl.Cryptography.Bls.HashToCurve
 
 namespace EthLibImpl.Cryptography.Bls.HashConst
 
-open private fpFromBytesL sgn0Fp sgn0Fp2 Z Aprime Bprime fp2 k10 k11 k12 k13 k20 k21 k30 k31 k32 k33 k40
-  k41 k42 c1Psi c2Psi c1Psi2 mulNegX blsAbsX from EthLib.Cryptography.Bls.HashToCurve
+open EthLib.Cryptography.Bls.HashToCurve (fpFromBytesL sgn0Fp sgn0Fp2 Z Aprime Bprime fp2 k10 k11 k12
+  k13 k20 k21 k30 k31 k32 k33 k40 k41 k42 c1Psi2 mulNegX)
+open EthLib.Cryptography.Bls.G2 (c1Psi c2Psi)
 
 theorem fpFromBytesL_eq (b : ByteArray) :
-    fpFromBytesL b = EthLib.Cryptography.Bls.Fp.ofNat (EthLib.Cryptography.Bls.Fp.bytesBEToNat b) :=
-  rfl
+    (fpFromBytesL b : EthLib.Cryptography.Bls.Fp) =
+      EthLib.Cryptography.Bls.Fp.ofNat (EthLib.Base.bytesToNat b.data.toList) :=
+  EthLib.Cryptography.Bls.Fp.baseField_ofNat _
 
 theorem Z_spec : HashToCurve.Z.Canonical ∧ HashToCurve.Z.toSpec = Z := by
   have h1 := G1.neg_c (a := Fp.ofNat 2) (Fp.ofNat_canonical 2)
@@ -246,26 +285,27 @@ theorem Z_spec : HashToCurve.Z.Canonical ∧ HashToCurve.Z.toSpec = Z := by
   show (Fp2.mk _ _).toSpec = _
   rw [Fp2.toSpec_mk, G1.neg_v (Fp.ofNat_canonical 2), G1.neg_v Fp.one_canonical,
     Fp.val_ofNat, Fp.val_one]
-  rfl
+  simp only [Z, EthLib.Cryptography.Bls.Fp.baseField_ofNat, EthLib.Cryptography.Bls.Fp.baseField_one]
 
 theorem Aprime_spec : HashToCurve.Aprime.Canonical ∧ HashToCurve.Aprime.toSpec = Aprime := by
   refine ⟨Fp2.canonical_mk Fp.zero_canonical (Fp.ofNat_canonical _), ?_⟩
   show (Fp2.mk _ _).toSpec = _
   rw [Fp2.toSpec_mk, Fp.val_zero, Fp.val_ofNat]
-  rfl
+  simp only [Aprime, EthLib.Cryptography.Bls.Fp.baseField_ofNat,
+    EthLib.Cryptography.Bls.Fp.baseField_zero]
 
 theorem Bprime_spec : HashToCurve.Bprime.Canonical ∧ HashToCurve.Bprime.toSpec = Bprime := by
   refine ⟨Fp2.canonical_mk (Fp.ofNat_canonical _) (Fp.ofNat_canonical _), ?_⟩
   show (Fp2.mk _ _).toSpec = _
   rw [Fp2.toSpec_mk]; simp only [Fp.val_ofNat]
-  rfl
+  simp only [Bprime, EthLib.Cryptography.Bls.Fp.baseField_ofNat]
 
 theorem fp2_spec (c0 c1 : Nat) :
     (HashToCurve.fp2 c0 c1).Canonical ∧ (HashToCurve.fp2 c0 c1).toSpec = fp2 c0 c1 := by
   refine ⟨Fp2.canonical_mk (Fp.ofNat_canonical _) (Fp.ofNat_canonical _), ?_⟩
   show (Fp2.mk _ _).toSpec = _
   rw [Fp2.toSpec_mk]; simp only [Fp.val_ofNat]
-  rfl
+  simp only [fp2, EthLib.Cryptography.Bls.Fp.baseField_ofNat]
 
 theorem k10_spec : HashToCurve.k10.Canonical ∧ HashToCurve.k10.toSpec = k10 := fp2_spec _ _
 theorem k11_spec : HashToCurve.k11.Canonical ∧ HashToCurve.k11.toSpec = k11 := fp2_spec _ _
@@ -286,16 +326,16 @@ theorem c1Psi_spec : HashToCurve.c1Psi.Canonical ∧ HashToCurve.c1Psi.toSpec = 
   have hp := Fp2.powNat_canonical hx ((Fp.modulus - 1) / 3)
   refine ⟨Fp2.inverse_canonical hp, ?_⟩
   show (Fp2.inverse _).toSpec = _
-  rw [Fp2.toSpec_inverse hp, Fp2.toSpec_powNat hx, Fp2.toSpec_mk, Fp.val_one]
-  rfl
+  rw [Fp2.toSpec_inverse hp, Fp2.toSpec_powNat hx, Fp2.toSpec_mk, Fp.val_one, Fp.modulus_eq]
+  simp only [c1Psi, EthLib.Cryptography.Bls.Fp.baseField_one]
 
 theorem c2Psi_spec : HashToCurve.c2Psi.Canonical ∧ HashToCurve.c2Psi.toSpec = c2Psi := by
   have hx : (Fp2.mk Fp.one Fp.one).Canonical := Fp2.canonical_mk Fp.one_canonical Fp.one_canonical
   have hp := Fp2.powNat_canonical hx ((Fp.modulus - 1) / 2)
   refine ⟨Fp2.inverse_canonical hp, ?_⟩
   show (Fp2.inverse _).toSpec = _
-  rw [Fp2.toSpec_inverse hp, Fp2.toSpec_powNat hx, Fp2.toSpec_mk, Fp.val_one]
-  rfl
+  rw [Fp2.toSpec_inverse hp, Fp2.toSpec_powNat hx, Fp2.toSpec_mk, Fp.val_one, Fp.modulus_eq]
+  simp only [c2Psi, EthLib.Cryptography.Bls.Fp.baseField_one]
 
 theorem c1Psi2_spec : HashToCurve.c1Psi2.Canonical ∧ HashToCurve.c1Psi2.toSpec = c1Psi2 := by
   have h2 := Fp.ofNat_canonical 2
@@ -303,13 +343,21 @@ theorem c1Psi2_spec : HashToCurve.c1Psi2.Canonical ∧ HashToCurve.c1Psi2.toSpec
   have hi := Fp.inverse_canonical hp
   refine ⟨Fp2.canonical_mk hi Fp.zero_canonical, ?_⟩
   show (Fp2.mk _ _).toSpec = _
-  rw [Fp2.toSpec_mk, Fp.val_inverse hp, Fp.val_powNat_powNat h2, Fp.val_ofNat, Fp.val_zero]
-  rfl
+  rw [Fp2.toSpec_mk, Fp.val_inverse hp, Fp.val_powNat_powNat h2, Fp.val_ofNat, Fp.val_zero,
+    Fp.modulus_eq]
+  simp only [c1Psi2, EthLib.Cryptography.Bls.Fp.baseField_ofNat,
+    EthLib.Cryptography.Bls.Fp.baseField_zero, EthLib.Cryptography.Bls.Fp.baseField_inverse,
+    EthLib.Cryptography.Bls.Fp.baseField_powNat]
+
+/-- RFC 9380's `sgn0` on the spec's `Fp` is the parity of the value. -/
+theorem sgn0Fp_eq (x : EthLib.Cryptography.Bls.Fp) : sgn0Fp x = (x.val % 2 == 1) := by
+  rw [sgn0Fp, EthLib.Cryptography.Bls.Fp.baseField_sgn0]
 
 theorem sgn0Fp2_spec {u : Fp2} (hu : u.Canonical) :
     HashToCurve.sgn0Fp2 u = sgn0Fp2 u.toSpec := by
-  unfold HashToCurve.sgn0Fp2 sgn0Fp2 sgn0Fp
-  rw [Fp.parity_eq, Fp.parity_eq, Fp2.fp_isZero_eq hu.1]
+  unfold HashToCurve.sgn0Fp2 sgn0Fp2
+  rw [sgn0Fp_eq, sgn0Fp_eq, Fp.parity_eq, Fp.parity_eq, Fp2.fp_isZero_eq hu.1,
+    EthLib.Cryptography.Bls.Fp.baseField_isZero]
   rfl
 
 /-- `mulNatWLean` returns `mulNatW`'s triple, point for point. -/
@@ -344,12 +392,21 @@ theorem mulNegX_spec {P : G2} (hP : G2.Canonical P) :
   rw [h4, h2, G2.absXWord_toNat]
   rfl
 
-open private fpFromBytesL from EthLib.Cryptography.Bls.HashToCurve
+/-- A fold of pushes is the start array followed by the pushed values. -/
+theorem foldl_push_eq {α β : Type} (g : α → β) (l : List α) (init : Array β) :
+    l.foldl (fun r i => r.push (g i)) init = init ++ (l.map g).toArray := by
+  induction l generalizing init with
+  | nil => simp
+  | cons a l ih =>
+    rw [List.foldl_cons, ih]
+    apply Array.toList_inj.mp
+    simp
 
-/-- `hashToFieldFp2` computes the spec's, and its output has `count` canonical elements. -/
+/-- `hashToFieldFp2` computes the spec's (as an array), and its output has `count` canonical
+elements. -/
 theorem hashToFieldFp2_spec_aux (msg dst : ByteArray) (count : Nat) :
     (HashToCurve.hashToFieldFp2 msg dst count).map (Array.map Fp2.toSpec) =
-      EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 msg dst count ∧
+      (EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 msg dst count).map Vector.toArray ∧
     ∀ us, HashToCurve.hashToFieldFp2 msg dst count = .ok us →
       us.size = count ∧ ∀ x ∈ us, x.Canonical := by
   unfold HashToCurve.hashToFieldFp2 EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2
@@ -357,52 +414,47 @@ theorem hashToFieldFp2_spec_aux (msg dst : ByteArray) (count : Nat) :
   rw [HashToCurve.expandMessageXmdFast_eq]
   rcases hu : EthLib.Cryptography.Bls.HashToCurve.expandMessageXmd msg dst (count * 2 * 64)
     with e | uniform
-  · refine ⟨?_, fun us h => ?_⟩
-    · simp only [bind, Except.bind, Except.map]
-    · simp only [bind, Except.bind] at h; cases h
+  · exact ⟨rfl, fun us h => nomatch h⟩
   · have hsz := HashToCurve.expand_size _ _ _ _ hu
-    simp only [bind, Except.bind, pure, Except.pure]
-    obtain ⟨r, r', hr, hr', hinv⟩ := HashToCurve.forIn_range_sim_idx
-      (fun (i : Nat) (out : Array Fp2) (out' : Array EthLib.Cryptography.Bls.Fp2) =>
-        out' = out.map Fp2.toSpec ∧ out.size = i ∧ ∀ x ∈ out, x.Canonical)
-      count
-      (fun i r => Except.ok (ForInStep.yield
-        (r.push (Fp2.mk (Fp.ofBytes64BE uniform (64 * (i * 2)))
-          (Fp.ofBytes64BE uniform (64 * (i * 2 + 1)))))))
-      (fun i r => Except.ok (ForInStep.yield
-        (r.push { c0 := fpFromBytesL (uniform.extract (64 * (i * 2)) (64 * (i * 2) + 64)),
-                  c1 := fpFromBytesL (uniform.extract (64 * (i * 2 + 1)) (64 * (i * 2 + 1) + 64)) })))
-      (by
-        intro i hi b b' ⟨hb1, hb2, hb3⟩
-        have hb0 : 64 * (i * 2) + 64 ≤ uniform.size := by rw [hsz]; omega
-        have hb1' : 64 * (i * 2 + 1) + 64 ≤ uniform.size := by rw [hsz]; omega
-        obtain ⟨c0, v0⟩ := Fp.ofBytes64BE_spec uniform _ hb0
-        obtain ⟨c1, v1⟩ := Fp.ofBytes64BE_spec uniform _ hb1'
-        refine ⟨_, _, rfl, rfl, ?_, ?_, ?_⟩
-        · have hmk : (⟨fpFromBytesL (uniform.extract (64 * (i * 2)) (64 * (i * 2) + 64)),
-              fpFromBytesL (uniform.extract (64 * (i * 2 + 1)) (64 * (i * 2 + 1) + 64))⟩ :
-              EthLib.Cryptography.Bls.Fp2) =
-              Fp2.toSpec (Fp2.mk (Fp.ofBytes64BE uniform (64 * (i * 2)))
-                (Fp.ofBytes64BE uniform (64 * (i * 2 + 1)))) := by
-            rw [Fp2.toSpec_mk, v0, v1]
-            rfl
-          rw [hb1, Array.map_push, hmk]
-        · rw [Array.size_push, hb2]
-        · intro x hx
-          rw [Array.mem_push] at hx
-          rcases hx with hx | hx
-          · exact hb3 x hx
-          · rw [hx]; exact Fp2.canonical_mk c0 c1)
-      (Array.mkEmpty count) (Array.mkEmpty count)
-      ⟨by simp [Array.mkEmpty], by simp [Array.mkEmpty], fun x hx => by simp [Array.mkEmpty] at hx⟩
-    rw [hr, hr']
+    have ob : ∀ {α β : Type} (a : α) (f : α → Except EthLib.Cryptography.Bls.BlsError β),
+        (Except.ok a >>= f) = f a := fun _ _ => rfl
+    simp only [ob]
+    rw [Std.Legacy.Range.forIn_eq_forIn_range']
+    simp only [List.forIn_pure_yield_eq_foldl, bind_pure, pure_bind, Std.Legacy.Range.size,
+      foldl_push_eq, Array.mkEmpty_eq, List.nil_append, Nat.sub_zero, Nat.add_sub_cancel,
+      Nat.div_one]
+    simp only [pure, Except.pure]
+    -- the implementation's elements, at an index below `count`
+    have hc : ∀ i, i < count →
+        (Fp2.mk (Fp.ofBytes64BE uniform (64 * (i * 2)))
+          (Fp.ofBytes64BE uniform (64 * (i * 2 + 1)))).Canonical ∧
+        Fp2.toSpec (Fp2.mk (Fp.ofBytes64BE uniform (64 * (i * 2)))
+          (Fp.ofBytes64BE uniform (64 * (i * 2 + 1)))) =
+          ⟨fpFromBytesL (uniform.extract (64 * (i * 2)) (64 * (i * 2) + 64)),
+            fpFromBytesL (uniform.extract (64 * (i * 2 + 1)) (64 * (i * 2 + 1) + 64))⟩ := by
+      intro i hi
+      have hb0 : 64 * (i * 2) + 64 ≤ uniform.size := by rw [hsz]; omega
+      have hb1 : 64 * (i * 2 + 1) + 64 ≤ uniform.size := by rw [hsz]; omega
+      obtain ⟨c0, v0⟩ := Fp.ofBytes64BE_spec uniform _ hb0
+      obtain ⟨c1, v1⟩ := Fp.ofBytes64BE_spec uniform _ hb1
+      refine ⟨Fp2.canonical_mk c0 c1, ?_⟩
+      rw [Fp2.toSpec_mk, v0, v1, fpFromBytesL_eq, fpFromBytesL_eq]
     refine ⟨?_, fun us h => ?_⟩
-    · show Except.ok (Array.map Fp2.toSpec r) = Except.ok r'
-      rw [hinv.1]
+    · show Except.ok _ = Except.ok _
+      congr 1
+      apply Array.ext
+      · simp
+      · intro i h1 h2
+        have hi : i < count := by simpa using h2
+        simp only [Array.empty_append, Array.getElem_map, List.getElem_toArray, List.getElem_map,
+          List.getElem_range', Vector.toArray_ofFn, Array.getElem_ofFn, Nat.zero_add, Nat.one_mul]
+        exact (hc i hi).2
     · injection h with h
       subst h
-      exact ⟨hinv.2.1, hinv.2.2⟩
-
+      refine ⟨by simp, fun x hx => ?_⟩
+      simp only [Array.empty_append, List.mem_toArray, List.mem_map, List.mem_range'] at hx
+      obtain ⟨a, ⟨i, hi, rfl⟩, rfl⟩ := hx
+      exact (hc _ (by omega)).1
 
 end EthLibImpl.Cryptography.Bls.HashConst
 
@@ -803,7 +855,7 @@ end EthLibImpl.Cryptography.Bls.HashToCurve
 
 namespace EthLibImpl.Cryptography.Bls.HashConst
 
-open private sgn0Fp2 Aprime Bprime from EthLib.Cryptography.Bls.HashToCurve
+open EthLib.Cryptography.Bls.HashToCurve (sgn0Fp2 Aprime Bprime)
 
 open EthLib.Cryptography.Bls (BlsError)
 
@@ -1033,7 +1085,7 @@ theorem clearCofactorJac_spec {P : G2} (hP : G2.Canonical P) :
 
 theorem hashToFieldFp2_spec (msg dst : ByteArray) (count : Nat) :
     (hashToFieldFp2 msg dst count).map (Array.map Fp2.toSpec) =
-      EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 msg dst count ∧
+      (EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 msg dst count).map Vector.toArray ∧
     ∀ us, hashToFieldFp2 msg dst count = .ok us →
       us.size = count ∧ ∀ x ∈ us, x.Canonical :=
   HashConst.hashToFieldFp2_spec_aux msg dst count
@@ -1060,36 +1112,6 @@ def hashToG2G (sw : Fp2 → Fp2 → Fp2 → Fp2 → Fp2 × Fp2) (msg dst : ByteA
 theorem hashToG2_eq_G : hashToG2 = hashToG2G simpleSwuWith := rfl
 
 
-open EthLib.Cryptography.Bls.HashToCurve in
-/-- The mirror's `hashToG2` with SSWU as a parameter, using the mirror's own matchers. -/
-def mirrorHashToG2G
-    (sw : EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 →
-      EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 × EthLib.Cryptography.Bls.Fp2)
-    (msg dst : ByteArray) : Except BlsError EthLib.Cryptography.Bls.G2 :=
-  bind (EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 msg dst 2) fun us =>
-    have u0 : EthLib.Cryptography.Bls.Fp2 := us[0]!
-    have u1 : EthLib.Cryptography.Bls.Fp2 := us[1]!
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (Mirror.HashToCurve.swuDenom u0)
-      fun zu0 den0 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (Mirror.HashToCurve.swuDenom u1)
-      fun zu1 den1 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2)
-      (Mirror.HashToCurve.batchInverse2 den0 den1) fun di0 di1 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (sw u0 zu0 den0 di0) fun x0 y0 =>
-    Mirror.HashToCurve.hashToG2.match_1
-      (fun _ => Except BlsError EthLib.Cryptography.Bls.G2) (sw u1 zu1 den1 di1) fun x1 y1 =>
-    pure (Mirror.HashToCurve.clearCofactorJac
-      (EthLib.Cryptography.Bls.G2.add (Mirror.HashToCurve.isoMapJac x0 y0)
-        (Mirror.HashToCurve.isoMapJac x1 y1)))
-
-theorem mirror_hashToG2_eq_G :
-    Mirror.HashToCurve.hashToG2 = mirrorHashToG2G Mirror.HashToCurve.simpleSwuWith := rfl
-
-
 theorem hashToG2G_spec
     (sw : Fp2 → Fp2 → Fp2 → Fp2 → Fp2 × Fp2)
     (sw' : EthLib.Cryptography.Bls.Fp2 → EthLib.Cryptography.Bls.Fp2 →
@@ -1098,24 +1120,41 @@ theorem hashToG2G_spec
     (hsw : ∀ {u zu den di : Fp2}, u.Canonical → zu.Canonical → den.Canonical → di.Canonical →
       PRel (sw u zu den di) (sw' u.toSpec zu.toSpec den.toSpec di.toSpec))
     (msg dst : ByteArray) :
-    (hashToG2G sw msg dst).map G2.toSpec = mirrorHashToG2G sw' msg dst ∧
+    (hashToG2G sw msg dst).map G2.toSpec = Mirror.HashToCurve.hashToG2With sw' msg dst ∧
       ∀ q, hashToG2G sw msg dst = .ok q → G2.Canonical q := by
-  unfold hashToG2G mirrorHashToG2G
+  unfold hashToG2G Mirror.HashToCurve.hashToG2With
   obtain ⟨hm, hc⟩ := hashToFieldFp2_spec msg dst 2
   rcases hu : hashToFieldFp2 msg dst 2 with e | us
   · rw [hu] at hm
-    rw [← hm]
-    refine ⟨?_, fun q hq => ?_⟩
-    · simp only [bind, Except.bind, Except.map]
-    · simp only [bind, Except.bind] at hq; cases hq
+    rcases hs : EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 (F := EthLib.Cryptography.Bls.Fp)
+      msg dst 2 with e' | vs
+    · rw [hs] at hm
+      have he : e = e' := Except.error.inj hm
+      subst he
+      refine ⟨?_, fun q hq => ?_⟩
+      · simp only [bind, Except.bind, Except.map]
+      · simp only [bind, Except.bind] at hq; cases hq
+    · rw [hs] at hm; cases hm
   · rw [hu] at hm
-    rw [← hm]
+    rcases hs : EthLib.Cryptography.Bls.HashToCurve.hashToFieldFp2 (F := EthLib.Cryptography.Bls.Fp)
+      msg dst 2 with e' | vs
+    · rw [hs] at hm; cases hm
+    rw [hs] at hm
+    have hv : vs.toArray = us.map Fp2.toSpec := (Except.ok.inj hm).symm
     simp only [bind, Except.bind, Except.map]
     obtain ⟨hsz, hcan⟩ := hc us hu
     have h0 : 0 < us.size := by omega
     have h1 : 1 < us.size := by omega
-    have e0 := map_getElem!' us h0
-    have e1 := map_getElem!' us h1
+    have e0 : vs[0]! = us[0]!.toSpec := by
+      rw [getElem!_pos vs 0 (by decide), ← Vector.getElem_toArray, ← map_getElem!' us h0,
+        getElem!_pos (c := us.map Fp2.toSpec) 0 (by simpa using h0)]
+      · simp only [hv]
+      · simp
+    have e1 : vs[1]! = us[1]!.toSpec := by
+      rw [getElem!_pos vs 1 (by decide), ← Vector.getElem_toArray, ← map_getElem!' us h1,
+        getElem!_pos (c := us.map Fp2.toSpec) 1 (by simpa using h1)]
+      · simp only [hv]
+      · simp
     have hu0 : us[0]!.Canonical := by
       rw [getElem!_pos us 0 h0]; exact hcan _ (Array.getElem_mem h0)
     have hu1 : us[1]!.Canonical := by
@@ -1159,7 +1198,7 @@ theorem hashToG2_spec (msg dst : ByteArray) :
   have h := hashToG2G_spec simpleSwuWith Mirror.HashToCurve.simpleSwuWith
     (fun {u zu den di} hu hz hd hi =>
       simpleSwuWith_spec (u := u) (zu2 := zu) (denom := den) (di := di) hu hz hd hi) msg dst
-  rw [hashToG2_eq_G, mirror_hashToG2_eq_G]
+  rw [hashToG2_eq_G, Mirror.HashToCurve.hashToG2_eq_with]
   exact h
 
 /-- Main result: the implementation's `hashToG2` and the spec's `HashToCurve.hashToG2` fail
@@ -1167,7 +1206,8 @@ with the same error, or both succeed with triples for the same point: the implem
 result is canonical, and the spec's triple is `G2.ProjEq` to its spec image (they differ by a
 Jacobian scaling). -/
 theorem hashToG2_rel_spec (msg dst : ByteArray) :
-    (∃ e, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst = .error e ∧
+    (∃ e, EthLib.Cryptography.Bls.HashToCurve.hashToG2 (F := EthLib.Cryptography.Bls.Fp) msg dst =
+        .error e ∧
         hashToG2 msg dst = .error e) ∨
       ∃ P q, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg dst = .ok P ∧
         hashToG2 msg dst = .ok q ∧ G2.Canonical q ∧
