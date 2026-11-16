@@ -585,8 +585,8 @@ theorem ethFastAggregateVerify_eq_spec (hcv : CoreVerifyHyp)
       rw [← mapM_exactBytes?_some hp, ← packBytes_of_exactBytes? hs]
       exact Mirror.Signatures.ethFastAggregateVerify_eq hpair hhash p msg s
 
-/-- A size check, then a fallible computation, under the implementation's `runBls`, is the
-spec's export shape: read, run under the spec's `runBls`, then return the bytes. -/
+/-- A computation whose result is mapped, under the implementation's `runBls`, is the spec's
+export shape: the first step and the second each under the spec's `runBls`, then the map. -/
 theorem runBls_bind_map {α β γ : Type} (x : Except BlsError α) (g : α → Except BlsError β)
     (h : β → γ) :
     Exports.runBls (x >>= fun a => (g a).map h) =

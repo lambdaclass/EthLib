@@ -197,8 +197,7 @@ theorem coreVerify_compress {agg : G1} (hg : Good agg)
 /-! ## 3. The aggregation loops
 
 The mirror's two loops, once their `do` sugar is unfolded, run the step functions
-below (`*_unfold` are `rfl`). On keys of the right size, each loop is the spec's
-`zipIdx.foldlM addPubkeyPoint`. -/
+below. On keys of the right size, each loop is the spec's `zipIdx.foldlM addPubkeyPoint`. -/
 
 /-- The spec's `aggregatePubkeyPoint`, unfolded. -/
 theorem aggregatePubkeyPoint_unfold (pks : Array BLSPubkey) :
