@@ -327,7 +327,7 @@ private theorem alt_z_ne (x : Fp)
 
 /-- `sqrtAlt`'s `a1 ≠ 0` branch: with `t = (a0 + s)/2` and `δ = t^((p-3)/4)`,
 the returned element squares to `a0 + a1 i` in both cases `δ²t = ±1`. -/
-private theorem alt_branch (a0 a1 s : Fp) (ha1 : a1 ≠ 0)
+theorem alt_branch (a0 a1 s : Fp) (ha1 : a1 ≠ 0)
     (hs : s * s = a0 * a0 + a1 * a1) :
     let t := (a0 + s) * 2⁻¹
     let d := t ^ ((Fp.modulus - 3) / 4)
