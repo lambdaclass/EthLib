@@ -1,5 +1,5 @@
 import EthLibImpl.Cryptography.Bls.Exports
-import EthLib.Cryptography.Bls.Exports
+import EthLib.Cryptography.Exports.Bls
 import EthLibImpl.Cryptography.Proofs.Bls.SigImpl
 import EthLibImpl.Cryptography.Proofs.Bls.CompressG2
 import EthLibImpl.Cryptography.Proofs.Bls.HashImpl
@@ -83,18 +83,24 @@ theorem coreVerifyHyp : CoreVerifyHyp := by
             (EthLib.Cryptography.Bls.G1.neg (G1.toSpec pk), G2.toSpec h)]
       exact hpc q h hq (hch h rfl)
 
-/-- **`eth_fast_aggregate_verify`.** The implementation returns EthLib's
-result on every input. -/
+/-- **`eth_fast_aggregate_verify`.** On keys of 48 bytes and a signature of 96, the
+implementation returns EthLib's result on the typed key and signature; on any other size it
+returns `false`, as EthLib's export does without running the check. -/
 theorem ethFastAggregateVerify_eq_ethlib (pks : Array ByteArray) (msg sig : ByteArray) :
-    ethFastAggregateVerify pks msg sig
-      = EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify pks msg sig :=
+    ethFastAggregateVerify pks msg sig =
+      match pks.mapM (EthLib.Cryptography.Bls.Exports.exactBytes? 48),
+        EthLib.Cryptography.Bls.Exports.exactBytes? 96 sig with
+      | some p, some s => EthLib.Cryptography.Bls.Signatures.ethFastAggregateVerify p msg s
+      | _, _ => false :=
   ethFastAggregateVerify_eq_spec coreVerifyHyp Mirror.pairingCheck_eq
     Mirror.HashToCurve.hashToG2_rel pks msg sig
 
-/-- **`eth_aggregate_pubkeys`.** The implementation returns EthLib's result
-on every input, errors included. -/
+/-- **`eth_aggregate_pubkeys`.** After the export's size check, the implementation returns
+EthLib's result on the typed keys, errors included. -/
 theorem ethAggregatePubkeys_eq_ethlib (pks : Array ByteArray) :
-    ethAggregatePubkeys pks = EthLib.Cryptography.Bls.Signatures.ethAggregatePubkeys pks :=
+    (Exports.checkPubkeySizes pks >>= fun _ => ethAggregatePubkeys pks) =
+      (pks.mapM EthLib.Cryptography.Bls.Exports.readPubkey >>= fun p =>
+        (EthLib.Cryptography.Bls.Signatures.ethAggregatePubkeys p).map EthLib.Base.packBytes) :=
   ethAggregatePubkeys_eq_spec pks
 
 end EthLibImpl.Cryptography.Bls.Signatures
@@ -104,10 +110,8 @@ namespace EthLibImpl.Cryptography.Bls.Exports
 /-- The exported `eth_bls_impl_aggregate_pubkeys` is EthLib's
 `eth_bls_aggregate_pubkeys`. -/
 theorem ethAggregatePubkeysExport_eq :
-    ethAggregatePubkeysExport = EthLib.Cryptography.Bls.Exports.ethAggregatePubkeysExport := by
-  funext pks
-  unfold ethAggregatePubkeysExport EthLib.Cryptography.Bls.Exports.ethAggregatePubkeysExport
-  rw [Signatures.ethAggregatePubkeys_eq_ethlib]
+    ethAggregatePubkeysExport = EthLib.Cryptography.Bls.Exports.ethAggregatePubkeysExport :=
+  funext Signatures.ethAggregatePubkeysExport_eq_spec
 
 /-- The exported `eth_bls_impl_fast_aggregate_verify` is EthLib's
 `eth_bls_fast_aggregate_verify`. -/
@@ -115,8 +119,8 @@ theorem ethFastAggregateVerifyExport_eq :
     ethFastAggregateVerifyExport
       = EthLib.Cryptography.Bls.Exports.ethFastAggregateVerifyExport := by
   funext pks msg sig
-  unfold ethFastAggregateVerifyExport EthLib.Cryptography.Bls.Exports.ethFastAggregateVerifyExport
-  rw [Signatures.ethFastAggregateVerify_eq_ethlib]
+  exact Signatures.ethFastAggregateVerifyExport_eq_spec Signatures.coreVerifyHyp
+    Mirror.pairingCheck_eq Mirror.HashToCurve.hashToG2_rel pks msg sig
 
 end EthLibImpl.Cryptography.Bls.Exports
 
